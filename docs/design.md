@@ -205,6 +205,27 @@ Answers to the open questions, chosen as defaults:
 
 ## Implementation reconciliation
 
+Where v1 differs from the sketch above, and why.
+
+- **Library plus binary.** `src/lib.rs` holds every module and `src/main.rs` only wires them. Integration tests (`tests/layering.rs`, `tests/player_live.rs`) can then use the player, and units not yet written stayed out of the build instead of carrying `todo!()` warnings past the clippy gate.
+- **mpv attribution.** `player/mpv.rs` holds the pure `attribute(&mut Attribution, &Value)`. The reader thread runs it and sends `Input::Engine` straight to the inbox, so `Inbox::Mpv` and `translate` are gone. The mpv child, its writer, and respawn stay in `shell.rs`. The inbox gained `MpvGone(generation)`, so a reader of an already replaced mpv cannot trigger a second respawn, and `Shutdown(ack)`, so `q` waits until mpv has quit.
+- **`Began` carries `duration` and `icy`.** The recorded transcript (`fixtures/mpv_transcript.jsonl`) shows `duration` before the first `time-pos > 0`, and stations send ICY titles while connecting. No pre-audio stage has room for them, so the attribution holds them and hands them over with `Began`.
+- **First audio.** The transcript shows `playback-restart` before the first `time-pos > 0`, so v1 uses the prototype's rule (`time-pos > 0` after our `start-file`). This settles the first open question below.
+- **`Reached { attempt, at }` in `Playing` and `OnAir`.** The live test found that a station whose stream ends right after connecting reconnected forever, because reaching `OnAir` forgot the attempt. A failure within 30 s (`STABLE_AFTER`) of first audio now counts against the attempt that got there; after 30 s a drop starts over at `First`.
+- **`Fetch::InFlight { ticket, seed }`.** The refill slot remembers its seed, so `Dry { at }` names the track the empty answer was for, even if the user skipped while the refill ran.
+- **Resolves.** Plays ignore the cap and negative entries. A play for an id already in flight waits for that resolve instead of starting a second one. `RESOLVE_CAP` is 5 and `FAILED_BACKOFF` is 60 s.
+- **Commands.** `Prewarm` is `Warm`, as the synthesis named it. `SetPaused(bool)` was added for MPRIS Play and Pause. `EngineCmd::Seek` is absolute, because the core computes relative seeks against its own clock and re-anchors it at once.
+- **Snapshot favorites** are one `items: Vec<Playable>` (tracks, then stations), which is what the Favorites tab lists.
+- **Queue view.** `gq` toggles a fourth list in `Browse` (`Tab::Queue`) that every layout shows in its list panel. Enter jumps and `dd` removes there. Removing the current entry while stopped does not start its follower.
+- **Keys.** A bound digit fires its binding (`1` `2` `3` switch sources); unbound digits build a count (`5j`).
+- **Art repaint.** v1 keeps the prototype's single force-repaint flag instead of the `ArtRepaint` wipe-then-draw enum. It is what the user approved on screen.
+- **Children die with wavelet.** mpv and pw-record get `PR_SET_PDEATHSIG` (`libc`), so a crash cannot leave an idle mpv behind.
+- **Boundary cleaning.** ICY titles lose control characters before they reach the terminal.
+- **radio-browser** uses the `all.api.radio-browser.info` name, as the prototype did, without a DNS pick.
+- **MPRIS** runs under `futures_lite::future::block_on` with zbus's default `async-io` backend. Verified with `busctl` calls equivalent to playerctl's (playerctl is not installed here). This settles the second open question.
+- **Tradeoffs above that the synthesis superseded.** Pause and volume do not update on mpv's echo, and a play does not start a duplicate yt-dlp run.
+- **Not in v1.** Mouse input, custom theme files (`~/.config/wavelet/themes/<name>.toml`), the `transparent` and `mouse` config keys, the art disk cache, and Lyrics.
+
 ## Open questions and risks
 
 - Is `playback-restart` the right first-audio signal for HTTP streams? The prototype measured `time-pos > 0` after `start-file`. If `playback-restart` fires before audible audio, `translate` should switch to that rule. One timing log run settles it.
