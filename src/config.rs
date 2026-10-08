@@ -79,7 +79,7 @@ pub fn config_dir() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join("wavelet"))
 }
 
-pub fn load() -> (Config, Vec<Issue>) {
+pub fn load_or_init() -> (Config, Vec<Issue>) {
     let Some(dir) = config_dir() else { return (Config::default(), vec![]) };
     let mut issues = Vec::new();
     let cfg_path = dir.join("config.toml");

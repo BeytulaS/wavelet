@@ -156,7 +156,7 @@ fn draw_art(f: &mut Frame, ui: &Ui, theme: Theme, rect: Rect) {
         return;
     }
     match ui.art.cover() {
-        Some(c) if ui.force_art || c.needs_send(rect) => c.render(f, rect),
+        Some(c) if ui.force_repaint || c.needs_send(rect) => c.render(f, rect),
         Some(_) => hold_area(f, rect),
         None => {
             f.render_widget(Block::default().style(Style::default().bg(theme.background_element.into())), rect);
@@ -170,6 +170,10 @@ fn draw_art(f: &mut Frame, ui: &Ui, theme: Theme, rect: Rect) {
         }
     }
 }
+
+// Music loses about 3 dB per octave; the tilt evens that out across the log axis.
+const TREBLE_TILT_DB: f32 = 24.0;
+const WINDOW_DB: f32 = 30.0;
 
 fn render_spectrum(f: &mut Frame, ui: &Ui, theme: Theme, vrect: Rect) {
     if !ui.spectrum.enabled || vrect.width == 0 || vrect.height == 0 {
@@ -189,8 +193,8 @@ fn render_spectrum(f: &mut Frame, ui: &Ui, theme: Theme, vrect: Rect) {
         let lo = x * NUM_BANDS / w;
         let hi = (((x + 1) * NUM_BANDS / w).max(lo + 1)).min(NUM_BANDS);
         let v = values[lo..hi].iter().sum::<f32>() / (hi - lo) as f32;
-        let db = 20.0 * (v / peak).max(1e-6).log10() + 24.0 * x as f32 / w as f32;
-        *c = ((db + 30.0) / 30.0).clamp(0.0, 1.0);
+        let db = 20.0 * (v / peak).max(1e-6).log10() + TREBLE_TILT_DB * x as f32 / w as f32;
+        *c = ((db + WINDOW_DB) / WINDOW_DB).clamp(0.0, 1.0);
     }
     for _ in 0..2 {
         let src = cols.clone();
@@ -700,7 +704,7 @@ pub fn frame(f: &mut Frame, ui: &Ui, now: Instant) -> FrameOut {
     if ui.mode == Mode::Help {
         render_help(f, ui, theme, area);
     }
-    if ui.force_art {
+    if ui.force_repaint {
         force_area(f, full);
     }
     out

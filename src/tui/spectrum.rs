@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::player::shell::die_with_parent;
+use crate::player::shell::{AUDIO_CLIENT_NAME, die_with_spawning_thread};
 use crate::tui::paint::visualizer::{Analyzer, VisBands};
 
 pub struct Spectrum {
@@ -60,7 +60,7 @@ fn capture(bands: Arc<Mutex<VisBands>>, want: Arc<AtomicBool>, slot: Arc<Mutex<O
         cmd.args([
             "--raw",
             "--target",
-            "wavelet",
+            AUDIO_CLIENT_NAME,
             "-P",
             "{ node.dont-fallback = true node.dont-reconnect = true }",
             "--format",
@@ -74,7 +74,7 @@ fn capture(bands: Arc<Mutex<VisBands>>, want: Arc<AtomicBool>, slot: Arc<Mutex<O
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-        die_with_parent(&mut cmd);
+        die_with_spawning_thread(&mut cmd);
         let Ok(mut child) = cmd.spawn() else {
             std::thread::sleep(Duration::from_secs(1));
             continue;

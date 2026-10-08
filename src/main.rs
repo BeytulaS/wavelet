@@ -19,27 +19,26 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let (cfg, issues) = config::load();
+    let (cfg, issues) = config::load_or_init();
     let mut notices: Vec<Notice> = issues.iter().map(|i| Notice { level: Level::Warn, text: i.to_string() }).collect();
     let store = Store::at_xdg().ok_or("no home directory for XDG paths")?;
     let (mut library, warning) = store.load_library();
     notices.extend(warning.map(|text| Notice { level: Level::Warn, text }));
-    if !library.radio_atlas_imported {
+    if !library.radio_atlas_checked {
         if let Some(dir) = dirs::data_dir().map(|d| d.join("radio-atlas"))
             && let Ok(stations) = import_radio_atlas(&dir)
         {
             let n = library.merge_stations(stations);
             notices.push(Notice { level: Level::Info, text: format!("imported {n} stations from Radio Atlas") });
         }
-        library.radio_atlas_imported = true;
+        library.radio_atlas_checked = true;
         if let Err(e) = store.save_library(&library) {
             notices.push(Notice { level: Level::Warn, text: format!("could not save favorites: {e}") });
         }
     }
     let restore = Restore { library, session: store.load_session(), initial_volume: cfg.volume };
-    let http = sources::http()?;
-
     let term = tui::Term::enter().map_err(|e| e.to_string())?;
+    let http = sources::http()?;
     let opts = PlayerOpts {
         restore,
         audio_device: cfg.audio_device.clone(),

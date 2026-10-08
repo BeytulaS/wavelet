@@ -266,7 +266,7 @@ impl KeyState {
 pub fn on_event(ui: &mut Ui, ev: Event, now: Instant) {
     match ev {
         Event::Key(k) if k.kind == KeyEventKind::Press => on_key(ui, k, now),
-        Event::Resize(..) => ui.force_art = true,
+        Event::Resize(..) => ui.force_repaint = true,
         _ => {}
     }
 }
@@ -275,7 +275,7 @@ fn on_key(ui: &mut Ui, k: KeyEvent, now: Instant) {
     match &mut ui.mode {
         Mode::Help => {
             ui.mode = Mode::Normal;
-            ui.force_art = true;
+            ui.force_repaint = true;
         }
         Mode::Search { draft } => match k.code {
             KeyCode::Esc => ui.mode = Mode::Normal,
@@ -363,7 +363,7 @@ pub fn dispatch(ui: &mut Ui, action: Action, now: Instant) {
         Action::GoQueue => ui.browse.toggle_queue(&ui.snap),
         Action::CycleLayout => {
             ui.layout = ui.layout.next();
-            ui.force_art = true;
+            ui.force_repaint = true;
         }
         Action::CycleTheme => {
             ui.look.cycle();

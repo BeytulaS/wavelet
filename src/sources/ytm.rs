@@ -10,7 +10,7 @@ use crate::domain::{ArtistRef, Track, VideoId};
 use crate::sources::Http;
 
 const BASE: &str = "https://music.youtube.com/youtubei/v1";
-const SONGS: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
+const SONGS_ONLY_PARAMS: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
 
 fn post(http: &Http, endpoint: &str, mut body: Value) -> Result<Value, String> {
     body["context"] = json!({"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20250101.01.00", "hl": "en"}});
@@ -25,7 +25,7 @@ fn post(http: &Http, endpoint: &str, mut body: Value) -> Result<Value, String> {
 }
 
 pub fn search(http: &Http, query: &str) -> Result<Vec<Track>, String> {
-    post(http, "search", json!({"query": query, "params": SONGS})).map(|v| parse_search(&v))
+    post(http, "search", json!({"query": query, "params": SONGS_ONLY_PARAMS})).map(|v| parse_search(&v))
 }
 
 pub fn radio(http: &Http, seed: &VideoId) -> Result<Vec<Track>, String> {

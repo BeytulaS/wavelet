@@ -83,7 +83,7 @@ pub struct Ui {
     pub spectrum: spectrum::Spectrum,
     pub toasts: Toasts,
     pub last_frame: draw::FrameOut,
-    pub force_art: bool,
+    pub force_repaint: bool,
     pub quit: bool,
     pub spin: usize,
 }
@@ -175,7 +175,7 @@ impl Ui {
             Msg::Term(ev) => input::on_event(self, ev, now),
             Msg::Player(Out::Snapshot(s)) => {
                 if self.art.want(now_art(&s), &self.tx, &self.http) {
-                    self.force_art = true;
+                    self.force_repaint = true;
                 }
                 self.spectrum.set_wanted(audible(&s));
                 self.snap = s;
@@ -186,7 +186,7 @@ impl Ui {
             Msg::Art(loaded) => {
                 if let Some(theme) = self.art.accept(loaded) {
                     self.look.album_changed(Some(theme));
-                    self.force_art = true;
+                    self.force_repaint = true;
                 }
             }
             Msg::OmarchyChanged => {
@@ -265,7 +265,7 @@ pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHand
         spectrum: spectrum::Spectrum::spawn(cfg.spectrum),
         toasts: Toasts { items: VecDeque::new() },
         last_frame: draw::FrameOut::default(),
-        force_art: false,
+        force_repaint: false,
         quit: false,
         spin: 0,
     };
@@ -308,7 +308,7 @@ pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHand
         term.terminal.draw(|f| out = draw::frame(f, &ui, now))?;
         ui.browse.set_offset(out.list_offset);
         ui.last_frame = out;
-        ui.force_art = false;
+        ui.force_repaint = false;
         last_draw = now;
         dirty = false;
     }

@@ -182,7 +182,7 @@ impl Clock {
     }
 }
 
-pub const RESOLVE_CAP: usize = 5;
+pub const WARM_CAP: usize = 5;
 pub const FAILED_BACKOFF: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
@@ -214,7 +214,7 @@ impl StreamCache {
 
     pub fn warm(&mut self, id: &VideoId, now: Instant) -> Option<Effect> {
         let failed = matches!(self.entries.get(id), Some(Cached::Failed { until }) if *until > now);
-        if failed || self.in_flight.len() >= RESOLVE_CAP {
+        if failed || self.in_flight.len() >= WARM_CAP {
             return None;
         }
         self.want(id, now)
@@ -243,7 +243,7 @@ impl StreamCache {
 pub struct Library {
     pub tracks: Vec<Arc<Track>>,
     pub stations: Vec<Arc<Station>>,
-    pub radio_atlas_imported: bool,
+    pub radio_atlas_checked: bool,
 }
 
 impl Library {
@@ -1066,7 +1066,7 @@ mod tests {
         let mut c = core();
         let ids: Vec<VideoId> = "abcdefg".chars().map(id).collect();
         let fx = cmd(&mut c, Command::Warm(ids.clone()), t0);
-        assert_eq!(fx.len(), RESOLVE_CAP, "{fx:?}");
+        assert_eq!(fx.len(), WARM_CAP, "{fx:?}");
         input(&mut c, Input::Resolved { id: id('a'), result: Err("nope".into()) }, t0);
         let fx = cmd(&mut c, Command::Warm(ids), t0);
         assert_eq!(fx, vec![Effect::Resolve(id('f'))], "a negative entry is not warmed again");

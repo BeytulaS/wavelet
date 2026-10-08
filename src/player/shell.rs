@@ -236,22 +236,16 @@ impl Mpv {
         let sock_path = runtime_dir.join("mpv.sock");
         let _ = std::fs::remove_file(&sock_path);
         let mut cmd = std::process::Command::new("mpv");
-        cmd.args([
-            "--idle=yes",
-            "--no-video",
-            "--no-config",
-            "--no-terminal",
-            "--ytdl=no",
-            "--audio-client-name=wavelet",
-        ])
-        .arg(format!("--input-ipc-server={}", sock_path.display()))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        cmd.args(["--idle=yes", "--no-video", "--no-config", "--no-terminal", "--ytdl=no"])
+            .arg(format!("--audio-client-name={AUDIO_CLIENT_NAME}"))
+            .arg(format!("--input-ipc-server={}", sock_path.display()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         if let Some(dev) = &audio_device {
             cmd.arg(format!("--audio-device={dev}"));
         }
-        die_with_parent(&mut cmd);
+        die_with_spawning_thread(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| std::io::Error::other(format!("mpv: {e}")))?;
         let start = Instant::now();
         let sock = loop {
@@ -338,7 +332,10 @@ impl Drop for Mpv {
     }
 }
 
-pub fn die_with_parent(cmd: &mut std::process::Command) {
+/// The PipeWire node name of wavelet's mpv; the spectrum capture targets it.
+pub const AUDIO_CLIENT_NAME: &str = "wavelet";
+
+pub fn die_with_spawning_thread(cmd: &mut std::process::Command) {
     // SAFETY: prctl is async-signal-safe and touches no Rust state.
     unsafe {
         cmd.pre_exec(|| {

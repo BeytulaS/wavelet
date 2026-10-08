@@ -24,7 +24,7 @@ struct LibraryFile {
     version: u32,
     tracks: Vec<Arc<Track>>,
     stations: Vec<Arc<Station>>,
-    radio_atlas_imported: bool,
+    radio_atlas_checked: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -77,7 +77,7 @@ impl Store {
         let Ok(text) = std::fs::read_to_string(&self.library) else { return (Library::default(), None) };
         match serde_json::from_str::<LibraryFile>(&text) {
             Ok(f) => {
-                (Library { tracks: f.tracks, stations: f.stations, radio_atlas_imported: f.radio_atlas_imported }, None)
+                (Library { tracks: f.tracks, stations: f.stations, radio_atlas_checked: f.radio_atlas_checked }, None)
             }
             Err(e) => {
                 let bad = self.library.with_extension("json.bad");
@@ -117,7 +117,7 @@ impl Store {
             version: VERSION,
             tracks: lib.tracks.clone(),
             stations: lib.stations.clone(),
-            radio_atlas_imported: lib.radio_atlas_imported,
+            radio_atlas_checked: lib.radio_atlas_checked,
         };
         write_atomic(&self.library, &serde_json::to_vec_pretty(&f)?)
     }
@@ -190,7 +190,7 @@ mod tests {
         let d = temp("lib");
         let store = Store::at(d.join("data"), d.join("state"));
         assert_eq!(store.load_library(), (Library::default(), None), "missing file is the default");
-        let lib = Library { tracks: vec![track(&vid('a'))], stations: vec![station(7)], radio_atlas_imported: true };
+        let lib = Library { tracks: vec![track(&vid('a'))], stations: vec![station(7)], radio_atlas_checked: true };
         store.save_library(&lib).expect("save");
         assert_eq!(store.load_library(), (lib, None));
         assert!(!d.join("data/library.tmp").exists(), "the temp file was renamed away");

@@ -39,7 +39,7 @@ fn wait_for(rx: &Receiver<Out>, what: &str, mut f: impl FnMut(&Out) -> bool) {
 }
 
 #[test]
-#[ignore]
+#[ignore = "plays through real mpv; run with tools/with_null_sink.sh cargo test --test player_live -- --ignored"]
 fn a_station_plays_retries_once_at_eof_then_stops_and_shutdown_reaps_mpv() {
     let device = std::env::var("WAVELET_TEST_AUDIO_DEVICE").expect("set WAVELET_TEST_AUDIO_DEVICE to a null sink");
     let dir = std::env::temp_dir().join(format!("wavelet-live-{}", std::process::id()));
