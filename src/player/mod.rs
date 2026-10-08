@@ -4,6 +4,7 @@
 
 pub mod api;
 pub mod core;
+pub mod mpv;
 pub mod queue;
 pub mod shell;
 pub mod store;

@@ -26,13 +26,15 @@ pub enum Command {
     Jump(EntryId),
     Remove(EntryId),
     TogglePause,
+    /// Absolute pause for MPRIS Play and Pause.
+    SetPaused(bool),
     /// Ignored unless a track is playing. Stations have no seek; see `core::Playback`.
     Seek(SeekTo),
     Volume(VolumeTo),
     /// Absolute, so a double-delivered or retried command converges.
     SetFavorite { item: Playable, on: bool },
-    /// Resolve these ahead of time (top search results). Lowest priority.
-    Prewarm(Vec<VideoId>),
+    /// Resolve these ahead of time (top search results), within the in-flight cap.
+    Warm(Vec<VideoId>),
     Shutdown,
 }
 
@@ -59,7 +61,8 @@ pub enum Out {
 /// published only when it differs from the last one (derived, never flagged dirty).
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
-    pub now: Option<NowPlaying>,
+    /// `None` when idle, and while the queue ran dry waiting on a radio refill.
+    pub now: Option<Now>,
     pub queue: Vec<QueueRow>,
     /// Index into `queue` of the current entry. A view-only convenience; commands use `EntryId`.
     pub cursor: Option<usize>,
@@ -75,37 +78,43 @@ pub struct QueueRow {
     pub from_radio: bool,
 }
 
+/// Split by media kind like `core::Playback`, so a client cannot read a
+/// duration or a seekable position off a station.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-pub struct NowPlaying {
-    pub entry: EntryId,
-    pub item: Playable,
-    pub status: Status,
-    pub clock: ClockView,
+pub enum Now {
+    Track { entry: EntryId, track: Arc<Track>, stage: TrackView },
+    Station { entry: EntryId, station: Arc<Station>, stage: StationView },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum Status {
-    /// Track only: waiting on yt-dlp.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub enum TrackView {
+    /// Waiting on yt-dlp.
     Resolving,
     /// loadfile sent, no audio yet.
-    Buffering,
-    Playing,
-    Paused,
+    Loading,
+    Playing { clock: ClockView, duration: Option<Duration> },
 }
 
-/// Position sampled when the snapshot was built. Clients extrapolate with their
-/// own receive time while `running`, so the progress bar moves at 30 fps from a
-/// 1 Hz snapshot stream and a socket client needs no shared clock.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-pub enum ClockView {
-    Track { pos: Duration, duration: Option<Duration>, running: bool },
-    Live { listened: Duration, running: bool, icy_title: Option<String> },
+pub enum StationView {
+    Connecting,
+    OnAir { listened: ClockView, icy: Option<String> },
+}
+
+/// Position sampled when the snapshot was built. Clients extrapolate from their
+/// own receive time while `running`, so a 1 Hz snapshot stream draws a smooth
+/// bar and a socket client needs no shared clock.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+pub struct ClockView {
+    pub pos: Duration,
+    pub running: bool,
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum RadioStatus {
     Off,
-    Following { seed: VideoId, fetching: bool },
+    /// `dry`: the last refill added nothing, so no refill runs until the current track changes.
+    Following { seed: VideoId, fetching: bool, dry: bool },
 }
 
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
