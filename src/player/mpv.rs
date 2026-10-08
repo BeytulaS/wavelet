@@ -92,7 +92,9 @@ pub fn attribute(a: &mut Attribution, line: &Value) -> Option<EngineEvent> {
                     }
                 }
                 "metadata/by-key/icy-title" => {
-                    let title = data.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+                    // Stream-supplied text goes to the terminal; drop control characters.
+                    let title = data.as_str().map(|s| s.chars().filter(|c| !c.is_control()).collect::<String>());
+                    let title = title.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
                     if p.began {
                         Some(EngineEvent::Icy { load: p.load, title })
                     } else {
@@ -146,7 +148,7 @@ mod tests {
         let events = run([
             json!({"request_id":7,"data":{"playlist_entry_id":1}}),
             json!({"event":"start-file","playlist_entry_id":1}),
-            json!({"event":"property-change","name":"metadata/by-key/icy-title","data":"Artist - Song"}),
+            json!({"event":"property-change","name":"metadata/by-key/icy-title","data":"Artist - \u{1b}[2mSong"}),
             tp(0.0),
             tp(1.2),
             tp(1.5),
@@ -157,7 +159,7 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                EngineEvent::Began { load: load(7), duration: None, icy: Some("Artist - Song".into()) },
+                EngineEvent::Began { load: load(7), duration: None, icy: Some("Artist - [2mSong".into()) },
                 EngineEvent::Position { load: load(7), pos: Duration::from_secs_f64(2.1) },
                 EngineEvent::Position { load: load(7), pos: Duration::from_secs_f64(0.4) },
                 EngineEvent::Icy { load: load(7), title: None },

@@ -444,7 +444,11 @@ impl Core {
             cursor: self.queue.cursor_index(),
             volume: self.volume,
             radio,
-            favorites: Favorites { tracks: self.library.tracks.clone(), stations: self.library.stations.clone() },
+            favorites: Favorites {
+                items: (self.library.tracks.iter().cloned().map(Playable::Track))
+                    .chain(self.library.stations.iter().cloned().map(Playable::Station))
+                    .collect(),
+            },
         }
     }
 

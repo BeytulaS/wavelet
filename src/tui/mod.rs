@@ -1,45 +1,72 @@
 //! The TUI client. Owns view state only: what is selected, what was searched,
-//! the theme, the art, the spectrum. Player state arrives as `Arc<Snapshot>` and
-//! is never mutated here; the TUI changes the player only by sending `Command`s.
+//! the theme, the art, the spectrum. Player state arrives as `Arc<Snapshot>`
+//! and changes only through `Command`s.
 //!
-//! One thread (main). One inbox. Draw is a pure function of `&Ui` that returns
-//! what it measured (`FrameOut`) instead of writing through `Cell`s.
+//! One thread (main), one inbox. Draw is a function of `&Ui` that returns what
+//! it measured (`FrameOut`) instead of writing through `Cell`s.
 
 pub mod art;
 pub mod browse;
 pub mod draw;
 pub mod input;
 pub mod look;
+#[rustfmt::skip]
 pub mod paint;
 pub mod spectrum;
 
 use std::collections::VecDeque;
+use std::io::Stdout;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use crossterm::execute;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui_image::picker::Picker;
+use url::Url;
 
-use crate::config::{Config, Issue};
+use crate::config::Config;
 use crate::domain::SearchId;
-use crate::player::api::{Level, Notice};
+use crate::player::api::{Notice, Now, StationView, TrackView};
 use crate::player::{Out, PlayerHandle, Snapshot};
+use crate::sources::Http;
+use crate::tui::paint::cover::Cover;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LayoutKind {
     Myx,
     Stage,
     List,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Focus {
-    Sidebar,
-    Main,
+impl LayoutKind {
+    pub fn parse(s: &str) -> Option<LayoutKind> {
+        match s {
+            "myx" => Some(LayoutKind::Myx),
+            "stage" => Some(LayoutKind::Stage),
+            "list" => Some(LayoutKind::List),
+            _ => None,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            LayoutKind::Myx => "myx",
+            LayoutKind::Stage => "stage",
+            LayoutKind::List => "list",
+        }
+    }
+    pub fn next(self) -> LayoutKind {
+        match self {
+            LayoutKind::Myx => LayoutKind::Stage,
+            LayoutKind::Stage => LayoutKind::List,
+            LayoutKind::List => LayoutKind::Myx,
+        }
+    }
 }
 
-/// What owns the keyboard right now. Search input and help swallow keys before the keymap.
+/// What owns the keyboard. Search input and help swallow keys before the keymap.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Mode {
     Normal,
@@ -49,12 +76,13 @@ pub enum Mode {
 
 pub struct Ui {
     pub player: PlayerHandle,
+    pub http: Http,
+    pub tx: Sender<Msg>,
     /// Latest snapshot and when it arrived; clocks extrapolate from `received`.
     pub snap: Arc<Snapshot>,
     pub received: Instant,
     pub browse: browse::Browse,
     pub mode: Mode,
-    pub focus: Focus,
     pub layout: LayoutKind,
     pub keys: input::KeyState,
     pub keymap: input::Keymap,
@@ -62,28 +90,26 @@ pub struct Ui {
     pub art: art::Art,
     pub spectrum: spectrum::Spectrum,
     pub toasts: Toasts,
-    /// Measurements from the last draw: list viewport heights, scroll offsets, hit rects.
+    /// Measurements from the last draw: list viewport height.
     pub last_frame: draw::FrameOut,
-    pub repaint: ArtRepaint,
+    /// Repaint every cell next frame: the art box was cleared or covered.
+    pub force_art: bool,
     pub quit: bool,
+    pub spin: usize,
 }
 
 /// Everything the TUI thread can receive.
 pub enum Msg {
     Term(crossterm::event::Event),
     Player(Out),
-    Search { tab: browse::Tab, ticket: SearchId, result: Result<Vec<crate::domain::Playable>, String> },
+    Search {
+        tab: browse::Tab,
+        ticket: SearchId,
+        result: Result<Vec<crate::domain::Playable>, String>,
+    },
     Art(art::Loaded),
-    /// Something changed under ~/.local/state/omarchy/current/ (debounced 100 ms).
+    /// Something changed under ~/.local/state/omarchy/current/ (debounced).
     OmarchyChanged,
-}
-
-/// Myx's art flicker handling, as is: blank the box one frame, then draw.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ArtRepaint {
-    Idle,
-    Wipe,
-    Draw,
 }
 
 pub struct Toasts {
@@ -94,14 +120,16 @@ pub const TOAST_LIFE: Duration = Duration::from_secs(3);
 
 impl Toasts {
     pub fn push(&mut self, n: Notice, now: Instant) {
-        todo!("cap at 4; drop oldest")
+        if self.items.len() == 4 {
+            self.items.pop_front();
+        }
+        self.items.push_back((n, now));
     }
-    pub fn visible(&self, now: Instant) -> impl Iterator<Item = (&Notice, f32 /*fade 1..0*/)> {
-        let _ = now;
-        self.items.iter().map(|(n, _)| (n, 1.0))
+    pub fn visible(&self) -> impl Iterator<Item = &Notice> {
+        self.items.iter().map(|(n, _)| n)
     }
     pub fn expire(&mut self, now: Instant) {
-        todo!()
+        self.items.retain(|(_, at)| now.saturating_duration_since(*at) < TOAST_LIFE);
     }
     pub fn any(&self) -> bool {
         !self.items.is_empty()
@@ -123,58 +151,189 @@ pub fn should_draw(dirty: bool, animating: bool, since_last: Duration) -> bool {
     }
 }
 
+fn now_art(s: &Snapshot) -> Option<&Url> {
+    match &s.now {
+        Some(Now::Track { track, .. }) => track.art.as_ref(),
+        Some(Now::Station { station, .. }) => station.favicon.as_ref(),
+        None => None,
+    }
+}
+
+/// Audio is flowing and not paused.
+pub fn audible(s: &Snapshot) -> bool {
+    match &s.now {
+        Some(Now::Track { stage: TrackView::Playing { clock, .. }, .. }) => clock.running,
+        Some(Now::Station { stage: StationView::OnAir { listened, .. }, .. }) => listened.running,
+        _ => false,
+    }
+}
+
 impl Ui {
-    /// Spectrum visible and receiving, theme fade running, toast fading, or a spinner up.
-    pub fn animating(&self, now: Instant) -> bool {
-        todo!()
+    /// Something on screen moves on its own: a fade, the spectrum, a toast, a
+    /// spinner, or a pending key prefix.
+    pub fn animating(&self) -> bool {
+        let spinning = match &self.snap.now {
+            Some(Now::Track { stage, .. }) => !matches!(stage, TrackView::Playing { .. }),
+            Some(Now::Station { stage, .. }) => matches!(stage, StationView::Connecting),
+            None => false,
+        };
+        let searching = [browse::Tab::YouTube, browse::Tab::Radio]
+            .iter()
+            .any(|t| self.browse.list(*t).is_some_and(|l| matches!(l.state, browse::Fetch::Loading(_))));
+        self.look.fading()
+            || (self.spectrum.enabled && self.spectrum.active())
+            || self.toasts.any()
+            || spinning
+            || searching
+            || self.keys.pending().is_some()
     }
 
-    fn handle(&mut self, msg: Msg, tx: &Sender<Msg>, now: Instant) {
+    fn handle(&mut self, msg: Msg, now: Instant) {
         match msg {
-            Msg::Term(ev) => input::on_event(self, ev, tx, now),
+            Msg::Term(ev) => input::on_event(self, ev, now),
             Msg::Player(Out::Snapshot(s)) => {
-                // TODO: if now-playing art URL changed -> self.art.want(url, tx)
-                //       spectrum.set_wanted(status == Playing && cfg spectrum && layout shows it)
+                if self.art.want(now_art(&s), &self.tx, &self.http) {
+                    self.force_art = true;
+                }
+                self.spectrum.set_wanted(audible(&s));
                 self.snap = s;
                 self.received = now;
             }
             Msg::Player(Out::Notice(n)) => self.toasts.push(n, now),
             Msg::Search { tab, ticket, result } => self.browse.landed(tab, ticket, result, &self.player),
             Msg::Art(loaded) => {
-                // Identity check: only the art for what plays now is applied.
-                if self.art.accept(loaded) {
-                    self.look.album_changed(self.art.theme(), now);
-                    self.repaint = ArtRepaint::Wipe;
+                if let Some(theme) = self.art.accept(loaded) {
+                    self.look.album_changed(Some(theme));
+                    self.force_art = true;
                 }
             }
             Msg::OmarchyChanged => {
-                self.look.reload_omarchy(now);
-                self.toasts.push(Notice { level: Level::Info, text: "theme reloaded".into() }, now);
+                self.look.reload_omarchy();
+                self.toasts.push(
+                    Notice { level: crate::player::api::Level::Info, text: "omarchy theme reloaded".into() },
+                    now,
+                );
             }
         }
     }
 }
 
-/// Owns the terminal. Returns when the user quits; sends `Shutdown` first.
-pub fn run(cfg: Config, issues: Vec<Issue>, player: PlayerHandle) -> std::io::Result<()> {
-    // TODO:
-    //   terminal setup (raw, alt screen, mouse capture if cfg.mouse); picker = art::make_picker()
-    //   let (tx, rx) = channel::<Msg>();
-    //   thread: crossterm::event::read() -> Msg::Term
-    //   player.subscribe(Box::new({ let tx = tx.clone(); move |out| tx.send(Msg::Player(out.clone())).is_ok() }))
-    //   look::watch_omarchy(tx.clone())        // notify watcher on the parent dir
-    //   ui.browse.load_top_stations(tx)        // radio tab starts with top-voted
-    //   issues -> toasts
-    //   loop {
-    //       let wait = if ui.animating(now) { ANIM_FRAME } else { IDLE_REDRAW };
-    //       recv_timeout(wait - since_last) -> handle(msg); drain try_recv; dirty = true
-    //       if !should_draw(dirty, animating, since_last) { continue }
-    //       ui.look.tick(now); ui.toasts.expire(now)
-    //       terminal.draw(|f| ui.last_frame = draw::frame(f, &ui, now))
-    //       ui.repaint = advance(ui.repaint)
-    //       if ui.quit { player.send(Shutdown); break }
-    //   }
-    let _: Option<(Receiver<Msg>, Config, Vec<Issue>, PlayerHandle)> = None;
-    let _ = (cfg, issues, player);
-    todo!()
+/// The terminal in raw mode on the alternate screen. Restores both on drop and
+/// on panic.
+pub struct Term {
+    terminal: Terminal<CrosstermBackend<Stdout>>,
+    picker: Picker,
+}
+
+impl Term {
+    /// Must run before any other thread starts: the image picker may rewrite
+    /// environment variables while it queries the terminal (see `Cover::make_picker`).
+    pub fn enter() -> std::io::Result<Term> {
+        enable_raw_mode()?;
+        execute!(std::io::stdout(), EnterAlternateScreen)?;
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            restore();
+            prev(info);
+        }));
+        let picker = Cover::make_picker(None);
+        let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
+        terminal.clear()?;
+        Ok(Term { terminal, picker })
+    }
+}
+
+fn restore() {
+    let _ = disable_raw_mode();
+    let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+}
+
+impl Drop for Term {
+    fn drop(&mut self) {
+        restore();
+    }
+}
+
+/// Owns the terminal until the user quits; stops the player before returning.
+pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHandle, http: Http) -> std::io::Result<()> {
+    let (tx, rx) = channel::<Msg>();
+    let input_tx = tx.clone();
+    std::thread::Builder::new().name("input".into()).spawn(move || {
+        while let Ok(ev) = crossterm::event::read() {
+            if input_tx.send(Msg::Term(ev)).is_err() {
+                return;
+            }
+        }
+    })?;
+    let player_tx = tx.clone();
+    player.subscribe(Box::new(move |out| player_tx.send(Msg::Player(out.clone())).is_ok()));
+    let _watcher = look::watch_omarchy(tx.clone());
+
+    let now = Instant::now();
+    let mut ui = Ui {
+        art: art::Art::new(term.picker.clone()),
+        player,
+        http,
+        tx,
+        snap: Arc::new(Snapshot::empty()),
+        received: now,
+        browse: browse::Browse::default(),
+        mode: Mode::Normal,
+        layout: cfg.layout,
+        keys: input::KeyState::default(),
+        keymap: input::Keymap::with_overrides(&cfg.keys),
+        look: look::Look::new(cfg.theme),
+        spectrum: spectrum::Spectrum::spawn(cfg.spectrum),
+        toasts: Toasts { items: VecDeque::new() },
+        last_frame: draw::FrameOut::default(),
+        force_art: false,
+        quit: false,
+        spin: 0,
+    };
+    for n in notices {
+        ui.toasts.push(n, now);
+    }
+    ui.browse.set_tab(browse::Tab::Radio, &ui.snap);
+    ui.browse.submit(String::new(), &ui.tx, &ui.http);
+    ui.browse.set_tab(browse::Tab::YouTube, &ui.snap);
+
+    let mut last_draw = Instant::now() - IDLE_REDRAW;
+    let mut dirty = true;
+    while !ui.quit {
+        let wait = if dirty {
+            MIN_FRAME
+        } else if ui.animating() {
+            ANIM_FRAME
+        } else {
+            IDLE_REDRAW
+        };
+        match rx.recv_timeout(wait.saturating_sub(last_draw.elapsed())) {
+            Ok(msg) => {
+                ui.handle(msg, Instant::now());
+                while let Ok(m) = rx.try_recv() {
+                    ui.handle(m, Instant::now());
+                }
+                dirty = true;
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        if ui.quit || !should_draw(dirty, ui.animating(), last_draw.elapsed()) {
+            continue;
+        }
+        let now = Instant::now();
+        ui.look.tick();
+        ui.toasts.expire(now);
+        ui.spin = ui.spin.wrapping_add(1);
+        let mut out = draw::FrameOut::default();
+        term.terminal.draw(|f| out = draw::frame(f, &ui, now))?;
+        ui.browse.set_offset(out.list_offset);
+        ui.last_frame = out;
+        ui.force_art = false;
+        last_draw = now;
+        dirty = false;
+    }
+    ui.spectrum.stop();
+    ui.player.shutdown(Duration::from_secs(3));
+    Ok(())
 }

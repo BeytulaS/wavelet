@@ -1,5 +1,5 @@
-//! Album art and station favicons: fetch, decode, derive the album theme, all off
-//! the UI thread. Drawing uses the ported Myx `Cover` with its flicker handling.
+//! Album art and station favicons: fetch, decode, and derive the album theme
+//! off the UI thread. Drawing uses the ported Myx `Cover`.
 
 use std::sync::mpsc::Sender;
 
@@ -7,14 +7,17 @@ use image::DynamicImage;
 use ratatui_image::picker::Picker;
 use url::Url;
 
+use crate::sources::Http;
 use crate::tui::Msg;
-use crate::tui::paint::{cover::Cover, theme::Theme};
+use crate::tui::paint::cover::Cover;
+use crate::tui::paint::reactive::derive_theme;
+use crate::tui::paint::theme::Theme;
 
 pub struct Art {
-    picker: Picker,
+    pub picker: Picker,
     /// The URL we want on screen. Results for any other URL are dropped.
     wanted: Option<Url>,
-    shown: Option<(Url, Cover, Theme)>,
+    cover: Option<Cover>,
 }
 
 pub struct Loaded {
@@ -25,22 +28,42 @@ pub struct Loaded {
 
 impl Art {
     pub fn new(picker: Picker) -> Art {
-        Art { picker, wanted: None, shown: None }
+        Art { picker, wanted: None, cover: None }
     }
-    /// Now-playing changed. `None` clears the cover (glyph placeholder).
-    pub fn want(&mut self, url: Option<Url>, tx: &Sender<Msg>) {
-        // TODO: if url == wanted { return } wanted = url; spawn fetch+decode+reactive::derive_theme -> Msg::Art
-        //       (disk cache in ~/.cache/wavelet/art/ keyed by URL hash: post-v1 unless cheap)
-        todo!()
+
+    /// Now playing changed. Returns whether the cover was cleared (no art), in
+    /// which case the caller repaints the box.
+    pub fn want(&mut self, url: Option<&Url>, tx: &Sender<Msg>, http: &Http) -> bool {
+        if url == self.wanted.as_ref() {
+            return false;
+        }
+        self.wanted = url.cloned();
+        let Some(url) = url.cloned() else {
+            return self.cover.take().is_some();
+        };
+        let (tx, http) = (tx.clone(), http.clone());
+        std::thread::spawn(move || {
+            let Ok(bytes) = http.get(url.as_str()).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes())
+            else {
+                return;
+            };
+            let Ok(img) = image::load_from_memory(&bytes) else { return };
+            let theme = derive_theme(&img, "album");
+            let _ = tx.send(Msg::Art(Loaded { url, img, theme }));
+        });
+        false
     }
-    /// Identity check against `wanted`. Returns whether the cover changed.
-    pub fn accept(&mut self, l: Loaded) -> bool {
-        todo!()
+
+    /// Identity check against `wanted`. Returns the album theme when the cover changed.
+    pub fn accept(&mut self, l: Loaded) -> Option<Theme> {
+        if self.wanted.as_ref() != Some(&l.url) {
+            return None;
+        }
+        self.cover = Some(Cover::from_image(l.img, self.picker.clone()));
+        Some(l.theme)
     }
-    pub fn theme(&self) -> Option<Theme> {
-        self.shown.as_ref().map(|(_, _, t)| *t)
-    }
+
     pub fn cover(&self) -> Option<&Cover> {
-        self.shown.as_ref().map(|(_, c, _)| c)
+        self.cover.as_ref()
     }
 }

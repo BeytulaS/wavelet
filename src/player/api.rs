@@ -77,6 +77,20 @@ pub struct Snapshot {
     pub favorites: Favorites,
 }
 
+impl Snapshot {
+    /// What a client shows before the player's first snapshot arrives.
+    pub fn empty() -> Snapshot {
+        Snapshot {
+            now: None,
+            queue: vec![],
+            cursor: None,
+            volume: Volume::new(0),
+            radio: RadioStatus::Off,
+            favorites: Favorites::default(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct QueueRow {
     pub id: EntryId,
@@ -132,16 +146,13 @@ pub enum RadioStatus {
 
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct Favorites {
-    pub tracks: Vec<Arc<Track>>,
-    pub stations: Vec<Arc<Station>>,
+    /// Tracks first, then stations, each in the order they were favorited.
+    pub items: Vec<Playable>,
 }
 
 impl Favorites {
     pub fn contains(&self, key: &ItemKey) -> bool {
-        match key {
-            ItemKey::Video(id) => self.tracks.iter().any(|t| &t.id == id),
-            ItemKey::Station(id) => self.stations.iter().any(|s| &s.id == id),
-        }
+        self.items.iter().any(|i| &i.key() == key)
     }
 }
 
