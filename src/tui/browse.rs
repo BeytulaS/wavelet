@@ -49,7 +49,7 @@ impl Browse {
     /// search still running for this tab becomes stale by construction.
     /// Radio with an empty query means top-voted.
     pub fn submit(&mut self, query: String, tx: &Sender<Msg>) {
-        // TODO: ticket = tickets.next(); list.state = Loading(ticket); list.query = query
+        // TODO: ticket = tickets.issue(); list.state = Loading(ticket); list.query = query
         //       spawn: ytm::search / radio_browser::{search, top_voted} -> Msg::Search{tab, ticket, result}
         todo!()
     }

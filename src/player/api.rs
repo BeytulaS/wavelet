@@ -125,7 +125,10 @@ pub struct Favorites {
 
 impl Favorites {
     pub fn contains(&self, key: &ItemKey) -> bool {
-        todo!("linear scan; favorites are tens of items")
+        match key {
+            ItemKey::Video(id) => self.tracks.iter().any(|t| &t.id == id),
+            ItemKey::Station(id) => self.stations.iter().any(|s| &s.id == id),
+        }
     }
 }
 

@@ -28,7 +28,8 @@ impl From<VideoId> for String {
 
 impl VideoId {
     pub fn parse(s: &str) -> Option<VideoId> {
-        todo!("len == 11 && all chars in [A-Za-z0-9_-]")
+        let ok = s.len() == 11 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+        ok.then(|| VideoId(s.to_string()))
     }
     pub fn as_str(&self) -> &str {
         &self.0
@@ -54,7 +55,14 @@ impl From<StationId> for String {
 
 impl StationId {
     pub fn parse(s: &str) -> Option<StationId> {
-        todo!("8-4-4-4-12 hex, lowercased")
+        let s = s.trim().to_ascii_lowercase();
+        let groups: Vec<&str> = s.split('-').collect();
+        let shape = groups.iter().map(|g| g.len()).eq([8, 4, 4, 4, 12]);
+        let hex = groups.iter().all(|g| g.bytes().all(|b| b.is_ascii_hexdigit()));
+        (shape && hex).then_some(StationId(s))
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -193,7 +201,7 @@ pub type SearchId = Ticket<Search>;
 pub struct Tickets(u64);
 
 impl Tickets {
-    pub fn next<K>(&mut self) -> Ticket<K> {
+    pub fn issue<K>(&mut self) -> Ticket<K> {
         self.0 += 1;
         Ticket(self.0, PhantomData)
     }
@@ -205,5 +213,33 @@ impl LoadId {
     }
     pub fn from_request_id(id: u64) -> LoadId {
         Ticket(id, PhantomData)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_id_accepts_eleven_url_safe_chars_only() {
+        assert!(VideoId::parse("dQw4w9WgXcQ").is_some());
+        assert!(VideoId::parse("a-b_c123456").is_some());
+        assert!(VideoId::parse("dQw4w9WgXc").is_none());
+        assert!(VideoId::parse("dQw4w9WgXcQQ").is_none());
+        assert!(VideoId::parse("dQw4w9WgX/Q").is_none());
+    }
+
+    #[test]
+    fn station_id_is_a_lowercased_uuid() {
+        let id = StationId::parse("960B6F0B-0601-11E8-AE97-52543BE04C81").expect("uuid");
+        assert_eq!(id.as_str(), "960b6f0b-0601-11e8-ae97-52543be04c81");
+        assert!(StationId::parse("960b6f0b-0601-11e8-ae97").is_none());
+        assert!(StationId::parse("960b6f0g-0601-11e8-ae97-52543be04c81").is_none());
+    }
+
+    #[test]
+    fn volume_clamps_at_construction_and_nudge() {
+        assert_eq!(Volume::new(500).get(), Volume::MAX);
+        assert_eq!(Volume::new(3).nudge(-5).get(), 0);
     }
 }
