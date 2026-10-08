@@ -18,7 +18,10 @@ pub enum Command {
     /// Enter on a YouTube result: queue becomes `[track]`, autoplay radio seeded by it.
     PlayTrack(Arc<Track>),
     /// Enter on a station: queue becomes the whole list, cursor on `start`, no radio.
-    PlayStations { stations: Vec<Arc<Station>>, start: StationId },
+    PlayStations {
+        stations: Vec<Arc<Station>>,
+        start: StationId,
+    },
     /// `a`: insert right after the cursor. Starts it if nothing is playing.
     PlayNext(Playable),
     Next,
@@ -32,7 +35,10 @@ pub enum Command {
     Seek(SeekTo),
     Volume(VolumeTo),
     /// Absolute, so a double-delivered or retried command converges.
-    SetFavorite { item: Playable, on: bool },
+    SetFavorite {
+        item: Playable,
+        on: bool,
+    },
     /// Resolve these ahead of time (top search results), within the in-flight cap.
     Warm(Vec<VideoId>),
     Shutdown,
@@ -92,7 +98,10 @@ pub enum TrackView {
     Resolving,
     /// loadfile sent, no audio yet.
     Loading,
-    Playing { clock: ClockView, duration: Option<Duration> },
+    Playing {
+        clock: ClockView,
+        duration: Option<Duration>,
+    },
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -114,7 +123,11 @@ pub struct ClockView {
 pub enum RadioStatus {
     Off,
     /// `dry`: the last refill added nothing, so no refill runs until the current track changes.
-    Following { seed: VideoId, fetching: bool, dry: bool },
+    Following {
+        seed: VideoId,
+        fetching: bool,
+        dry: bool,
+    },
 }
 
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]

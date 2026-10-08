@@ -1,50 +1,241 @@
 //! InnerTube (music.youtube.com/youtubei/v1), anonymous WEB_REMIX client.
-//! Parsers walk the response for renderer objects instead of fixed paths, which
-//! survived layout shuffles in the prototype.
+//! Parsers walk the response for renderer objects instead of fixed paths,
+//! which survived layout shuffles in the prototype.
 
-use serde_json::Value;
+use std::collections::HashSet;
+use std::time::Duration;
 
-use crate::domain::{Track, VideoId};
+use serde_json::{Value, json};
+use url::Url;
 
-/// `search` with the songs filter param. Order preserved, deduped by VideoId.
-pub fn search(http: &reqwest::blocking::Client, query: &str) -> Result<Vec<Track>, String> {
-    todo!("POST search?prettyPrint=false; parse_search")
+use crate::domain::{ArtistRef, Track, VideoId};
+use crate::sources::Http;
+
+const BASE: &str = "https://music.youtube.com/youtubei/v1";
+/// The "songs" filter for `search`.
+const SONGS: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
+
+fn post(http: &Http, endpoint: &str, mut body: Value) -> Result<Value, String> {
+    body["context"] = json!({"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20250101.01.00", "hl": "en"}});
+    http.post(format!("{BASE}/{endpoint}?prettyPrint=false"))
+        .header("Content-Type", "application/json")
+        .header("Origin", "https://music.youtube.com")
+        .body(body.to_string())
+        .send()
+        .and_then(|r| r.error_for_status())
+        .and_then(|r| r.json())
+        .map_err(|e| e.to_string())
 }
 
-/// `next` with playlistId = RDAMVM<seed>, isAudioOnly. The seed itself is the
-/// first item; callers dedupe against the queue anyway.
-pub fn radio(http: &reqwest::blocking::Client, seed: &VideoId) -> Result<Vec<Track>, String> {
-    todo!("POST next; parse_next")
+pub fn search(http: &Http, query: &str) -> Result<Vec<Track>, String> {
+    post(http, "search", json!({"query": query, "params": SONGS})).map(|v| parse_search(&v))
 }
 
-/// Pure. Collect every `musicResponsiveListItemRenderer`; videoId from
-/// playlistItemData, then the overlay play button, then column 0's watchEndpoint.
-/// Column 1 runs split on " • " give artists (with browseIds from navigationEndpoint),
-/// album when 3+ parts, duration when the last part looks like m:ss.
-/// Rows whose videoId fails `VideoId::parse` are dropped.
-pub fn parse_search(root: &Value) -> Vec<Track> {
-    todo!()
+/// The seed itself comes back first; the queue dedupes it.
+pub fn radio(http: &Http, seed: &VideoId) -> Result<Vec<Track>, String> {
+    let body = json!({"videoId": seed.as_str(), "playlistId": format!("RDAMVM{}", seed.as_str()), "isAudioOnly": true});
+    post(http, "next", body).map(|v| parse_next(&v))
 }
 
-/// Pure. Collect every `playlistPanelVideoRenderer`. `longBylineText` gives
-/// artist • album • year; a part ending in " views" is not an album.
-pub fn parse_next(root: &Value) -> Vec<Track> {
-    todo!()
+fn collect<'a>(v: &'a Value, key: &str, out: &mut Vec<&'a Value>) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m {
+                if k == key {
+                    out.push(x);
+                } else {
+                    collect(x, key, out);
+                }
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|x| collect(x, key, out)),
+        _ => {}
+    }
+}
+
+fn runs(v: &Value) -> &[Value] {
+    v["runs"].as_array().map_or(&[], Vec::as_slice)
+}
+
+fn text(v: &Value) -> String {
+    runs(v).iter().filter_map(|r| r["text"].as_str()).collect()
+}
+
+/// A byline's runs split at " • " into segments, e.g. [artists] [album] [7:10].
+fn segments(v: &Value) -> Vec<&[Value]> {
+    runs(v).split(|r| r["text"].as_str() == Some(" • ")).collect()
+}
+
+fn browse_id(run: &Value) -> Option<&str> {
+    run["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str()
+}
+
+/// The first segment, minus joiners like " & " and ", ".
+fn artists(segs: &[&[Value]]) -> Vec<ArtistRef> {
+    let Some(first) = segs.first() else { return vec![] };
+    first
+        .iter()
+        .filter_map(|r| {
+            let name = r["text"].as_str()?.trim();
+            let joiner = matches!(name, "&" | "," | "and" | "x" | "");
+            (!joiner).then(|| ArtistRef { name: name.to_string(), browse_id: browse_id(r).map(str::to_string) })
+        })
+        .collect()
+}
+
+/// An album run links to an `MPRE…` browse id; a view count or year never does.
+fn album(segs: &[&[Value]]) -> Option<String> {
+    segs.iter().skip(1).flat_map(|s| s.iter()).find(|r| browse_id(r).is_some_and(|b| b.starts_with("MPRE")))?["text"]
+        .as_str()
+        .map(str::to_string)
+}
+
+fn parse_clock(s: &str) -> Option<Duration> {
+    let parts: Vec<u64> = s.trim().split(':').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+    if !(2..=3).contains(&parts.len()) {
+        return None;
+    }
+    Some(Duration::from_secs(parts.iter().fold(0, |acc, p| acc * 60 + p)))
+}
+
+fn thumb(thumbnails: &Value) -> Option<Url> {
+    let url = thumbnails.as_array()?.last()?["url"].as_str()?;
+    Url::parse(&big_thumb(url)).ok()
 }
 
 /// `=w60-h60` -> `=w544-h544` so the art is worth drawing.
 fn big_thumb(url: &str) -> String {
-    todo!()
+    if let Some(p) = url.rfind("=w") {
+        let after_w = url[p + 2..].trim_start_matches(|c: char| c.is_ascii_digit());
+        if let Some(h) = after_w.strip_prefix("-h") {
+            let tail = h.trim_start_matches(|c: char| c.is_ascii_digit());
+            return format!("{}=w544-h544{}", &url[..p], tail);
+        }
+    }
+    url.to_string()
+}
+
+/// Pure. Every `musicResponsiveListItemRenderer` with a parseable video id, in
+/// order, deduped by id.
+pub fn parse_search(root: &Value) -> Vec<Track> {
+    let mut rows = Vec::new();
+    collect(root, "musicResponsiveListItemRenderer", &mut rows);
+    let mut seen = HashSet::new();
+    rows.into_iter()
+        .filter_map(|r| {
+            let col = |i: usize| &r["flexColumns"][i]["musicResponsiveListItemFlexColumnRenderer"]["text"];
+            let id = r["playlistItemData"]["videoId"]
+                .as_str()
+                .or_else(|| {
+                    r["overlay"]["musicItemThumbnailOverlayRenderer"]["content"]["musicPlayButtonRenderer"]
+                        ["playNavigationEndpoint"]["watchEndpoint"]["videoId"]
+                        .as_str()
+                })
+                .or_else(|| runs(col(0)).first()?["navigationEndpoint"]["watchEndpoint"]["videoId"].as_str())
+                .and_then(VideoId::parse)?;
+            let segs = segments(col(1));
+            let duration =
+                segs.last().and_then(|s| parse_clock(&s.iter().filter_map(|r| r["text"].as_str()).collect::<String>()));
+            Some(Track {
+                title: text(col(0)),
+                artists: artists(&segs),
+                album: album(&segs),
+                duration,
+                art: thumb(&r["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"]),
+                id,
+            })
+        })
+        .filter(|t| seen.insert(t.id.clone()))
+        .collect()
+}
+
+/// Pure. Every `playlistPanelVideoRenderer` with a parseable video id, in order.
+pub fn parse_next(root: &Value) -> Vec<Track> {
+    let mut rows = Vec::new();
+    collect(root, "playlistPanelVideoRenderer", &mut rows);
+    let mut seen = HashSet::new();
+    rows.into_iter()
+        .filter_map(|r| {
+            let segs = segments(&r["longBylineText"]);
+            Some(Track {
+                id: r["videoId"].as_str().and_then(VideoId::parse)?,
+                title: text(&r["title"]),
+                artists: artists(&segs),
+                album: album(&segs),
+                duration: parse_clock(&text(&r["lengthText"])),
+                art: thumb(&r["thumbnail"]["thumbnails"]),
+            })
+        })
+        .filter(|t| seen.insert(t.id.clone()))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    // fixtures/ytm_search.json (copied from the prototype), fixtures/ytm_next.json (capture once).
-    //
-    // parse_search_fixture_yields_songs_with_ids_titles_artists_durations
-    //   asserts exact values for the first three rows, so a renderer rename fails loudly.
-    // parse_search_dedupes_repeated_video_ids
-    // parse_next_fixture_yields_radio_tracks_in_order
-    // parse_next_drops_view_count_as_album
-    // parse_on_empty_object_returns_empty_not_panic
+    use super::*;
+
+    fn fixture(name: &str) -> Value {
+        let path = format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        serde_json::from_str(&std::fs::read_to_string(path).expect("fixture")).expect("fixture json")
+    }
+
+    fn names(t: &Track) -> Vec<&str> {
+        t.artists.iter().map(|a| a.name.as_str()).collect()
+    }
+
+    #[test]
+    fn search_fixture_yields_songs_with_exact_fields() {
+        let tracks = parse_search(&fixture("ytm_search.json"));
+        assert_eq!(tracks.len(), 20);
+        let t = &tracks[0];
+        assert_eq!(t.id.as_str(), "Jb6gcoR266U");
+        assert_eq!(t.title, "Around the World");
+        assert_eq!(names(t), ["Daft Punk"]);
+        assert_eq!(t.artists[0].browse_id.as_deref(), Some("UCRr1xG_2WIDs18a6cIiCxeA"));
+        assert_eq!(t.album.as_deref(), Some("Homework"));
+        assert_eq!(t.duration, Some(Duration::from_secs(7 * 60 + 10)));
+        assert!(t.art.as_ref().is_some_and(|u| u.as_str().contains("w544-h544")));
+        assert_eq!(tracks[1].id.as_str(), "bmjsUsS8QuM");
+        assert_eq!(tracks[2].title, "Around the World (Radio Edit)");
+        assert_eq!(tracks[2].duration, Some(Duration::from_secs(4 * 60 + 2)));
+    }
+
+    #[test]
+    fn next_fixture_yields_radio_tracks_in_order_with_joined_artists() {
+        let tracks = parse_next(&fixture("ytm_next.json"));
+        assert_eq!(tracks.len(), 50);
+        assert_eq!(tracks[0].id.as_str(), "Jb6gcoR266U", "the seed comes first");
+        assert_eq!(tracks[1].title, "One More Time (Radio Edit)");
+        assert_eq!(tracks[1].album.as_deref(), Some("One More Time"));
+        assert_eq!(tracks[1].duration, Some(Duration::from_secs(5 * 60 + 21)));
+        assert_eq!(names(&tracks[3]), ["Gorillaz", "De La Soul"]);
+        assert_eq!(tracks[3].album.as_deref(), Some("Demon Days"));
+    }
+
+    #[test]
+    fn a_view_count_is_not_an_album_and_duplicate_ids_collapse() {
+        let row = |id: &str| {
+            json!({"playlistPanelVideoRenderer": {
+                "videoId": id, "title": {"runs": [{"text": "t"}]},
+                "longBylineText": {"runs": [{"text": "Someone"}, {"text": " • "}, {"text": "137M views"}]},
+                "lengthText": {"runs": [{"text": "4:02"}]}}})
+        };
+        let tracks = parse_next(&json!({"contents": [row("K0HSD_i2DvA"), row("K0HSD_i2DvA"), row("short")]}));
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].album, None);
+        assert_eq!(names(&tracks[0]), ["Someone"]);
+    }
+
+    #[test]
+    fn empty_input_returns_nothing() {
+        assert!(parse_search(&json!({})).is_empty());
+        assert!(parse_next(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn clock_strings_parse_and_garbage_does_not() {
+        assert_eq!(parse_clock("1:02:03"), Some(Duration::from_secs(3723)));
+        assert_eq!(parse_clock("137M views"), None);
+        assert_eq!(parse_clock("42"), None);
+    }
 }

@@ -51,10 +51,15 @@ enum Radio {
 pub enum Fetch {
     #[default]
     Idle,
-    InFlight { ticket: RefillId, seed: VideoId },
+    InFlight {
+        ticket: RefillId,
+        seed: VideoId,
+    },
     /// A refill seeded by `at` added nothing (or failed). No refill runs until
     /// the current track is a different one, so an empty answer cannot loop.
-    Dry { at: VideoId },
+    Dry {
+        at: VideoId,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -203,12 +208,8 @@ impl Queue {
         }
         let seed = seed.clone();
         let mut have: HashSet<ItemKey> = self.entries.iter().map(|e| e.item.key()).collect();
-        let fresh: Vec<Playable> = tracks
-            .unwrap_or_default()
-            .into_iter()
-            .map(Playable::Track)
-            .filter(|p| have.insert(p.key()))
-            .collect();
+        let fresh: Vec<Playable> =
+            tracks.unwrap_or_default().into_iter().map(Playable::Track).filter(|p| have.insert(p.key())).collect();
         let added = fresh.len();
         *fetch = if added == 0 { Fetch::Dry { at: seed } } else { Fetch::Idle };
         for item in fresh {

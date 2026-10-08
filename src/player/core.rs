@@ -11,7 +11,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::domain::{ItemKey, LoadId, Playable, RefillId, Station, StationId, StreamUrl, Tickets, Track, VideoId, Volume};
+use crate::domain::{
+    ItemKey, LoadId, Playable, RefillId, Station, StationId, StreamUrl, Tickets, Track, VideoId, Volume,
+};
 use crate::player::api::{
     ClockView, Command, Favorites, Level, Notice, Now, QueueRow, RadioStatus, SeekTo, Snapshot, StationView, TrackView,
     VolumeTo,
@@ -25,8 +27,14 @@ pub enum Input {
     Engine(EngineEvent),
     /// yt-dlp finished. Keyed by id, not ticket: a URL is useful to the cache
     /// whoever asked for it, so a stale resolve is never wasted.
-    Resolved { id: VideoId, result: Result<StreamUrl, String> },
-    Refilled { ticket: RefillId, result: Result<Vec<Arc<Track>>, String> },
+    Resolved {
+        id: VideoId,
+        result: Result<StreamUrl, String>,
+    },
+    Refilled {
+        ticket: RefillId,
+        result: Result<Vec<Arc<Track>>, String>,
+    },
     /// Once a second from the shell. Drives debounced session saves.
     Tick,
 }
@@ -39,14 +47,30 @@ pub enum EngineEvent {
     /// First `time-pos > 0` after our `start-file`: audio is flowing. Carries
     /// the duration and ICY title mpv reported before that, which no stage
     /// before `Playing`/`OnAir` has room for.
-    Began { load: LoadId, duration: Option<Duration>, icy: Option<String> },
+    Began {
+        load: LoadId,
+        duration: Option<Duration>,
+        icy: Option<String>,
+    },
     /// Throttled to whole-second steps by the attribution.
-    Position { load: LoadId, pos: Duration },
-    Duration { load: LoadId, duration: Duration },
-    Icy { load: LoadId, title: Option<String> },
+    Position {
+        load: LoadId,
+        pos: Duration,
+    },
+    Duration {
+        load: LoadId,
+        duration: Duration,
+    },
+    Icy {
+        load: LoadId,
+        title: Option<String>,
+    },
     /// `end-file` with reason eof or error. `stop` only follows our own
     /// `loadfile replace` and is dropped before it gets here.
-    Ended { load: LoadId, reason: EndReason },
+    Ended {
+        load: LoadId,
+        reason: EndReason,
+    },
     /// mpv died and the shell spawned a fresh one. All LoadIds are dead.
     Restarted,
 }
@@ -63,7 +87,10 @@ pub enum Effect {
     Engine(EngineCmd),
     /// Run yt-dlp for this id. The cache dedupes, so the shell just spawns.
     Resolve(VideoId),
-    Refill { ticket: RefillId, seed: VideoId },
+    Refill {
+        ticket: RefillId,
+        seed: VideoId,
+    },
     /// radio-browser `/json/url/<uuid>` click count.
     CountClick(StationId),
     SaveLibrary(Library),
@@ -74,7 +101,11 @@ pub enum Effect {
 #[derive(Debug, Clone, PartialEq)]
 pub enum EngineCmd {
     /// Also unpauses: anything newly loaded plays.
-    Load { load: LoadId, url: url::Url, start: Option<Duration> },
+    Load {
+        load: LoadId,
+        url: url::Url,
+        start: Option<Duration>,
+    },
     SetPause(bool),
     /// Absolute; the core computes relative seeks against its own clock.
     Seek(Duration),
@@ -93,8 +124,16 @@ pub enum Playback {
     /// The queue ran out while a radio refill is in flight. `refilled` resumes
     /// from here; an empty refill falls back to `Idle`.
     AwaitingRefill,
-    Track { entry: EntryId, track: Arc<Track>, stage: TrackStage },
-    Station { entry: EntryId, station: Arc<Station>, stage: StationStage },
+    Track {
+        entry: EntryId,
+        track: Arc<Track>,
+        stage: TrackStage,
+    },
+    Station {
+        entry: EntryId,
+        station: Arc<Station>,
+        stage: StationStage,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -171,7 +210,9 @@ pub const FAILED_BACKOFF: Duration = Duration::from_secs(60);
 enum Cached {
     Ready(StreamUrl),
     /// Negative entry, so a dead prefetch does not respawn yt-dlp every step.
-    Failed { until: Instant },
+    Failed {
+        until: Instant,
+    },
 }
 
 /// URL cache plus the in-flight set. Owned by the core so the shell never dedupes.
@@ -588,7 +629,9 @@ impl Core {
         match self.playback.clone() {
             Playback::Track { entry, track, stage } => {
                 let (attempt, start) = match stage {
-                    TrackStage::Resolving { attempt, start } | TrackStage::Loading { attempt, start, .. } => (attempt, start),
+                    TrackStage::Resolving { attempt, start } | TrackStage::Loading { attempt, start, .. } => {
+                        (attempt, start)
+                    }
                     TrackStage::Playing { clock, .. } => (Attempt::First, Some(clock.at(now))),
                 };
                 match attempt.next() {
@@ -627,7 +670,13 @@ impl Core {
         }
     }
 
-    fn refilled(&mut self, ticket: RefillId, result: Result<Vec<Arc<Track>>, String>, now: Instant, fx: &mut Vec<Effect>) {
+    fn refilled(
+        &mut self,
+        ticket: RefillId,
+        result: Result<Vec<Arc<Track>>, String>,
+        now: Instant,
+        fx: &mut Vec<Effect>,
+    ) {
         let (tracks, err) = match result {
             Ok(t) => (Some(t), None),
             Err(e) => (None, Some(e)),
@@ -659,21 +708,24 @@ impl Core {
                 if let StationStage::Connecting { load: l, .. } = *stage
                     && l == load
                 {
-                    *stage = StationStage::OnAir { load, listened: Clock::Running { from: Duration::ZERO, at: now }, icy };
+                    *stage =
+                        StationStage::OnAir { load, listened: Clock::Running { from: Duration::ZERO, at: now }, icy };
                 }
             }
-            (EngineEvent::Position { load, pos }, Playback::Track { stage: TrackStage::Playing { load: l, clock, .. }, .. })
-                if *l == load =>
-            {
+            (
+                EngineEvent::Position { load, pos },
+                Playback::Track { stage: TrackStage::Playing { load: l, clock, .. }, .. },
+            ) if *l == load => {
                 *clock = clock.reanchor(pos, now);
             }
             (
                 EngineEvent::Duration { load, duration },
                 Playback::Track { stage: TrackStage::Playing { load: l, duration: d, .. }, .. },
             ) if *l == load => *d = Some(duration),
-            (EngineEvent::Icy { load, title }, Playback::Station { stage: StationStage::OnAir { load: l, icy, .. }, .. })
-                if *l == load =>
-            {
+            (
+                EngineEvent::Icy { load, title },
+                Playback::Station { stage: StationStage::OnAir { load: l, icy, .. }, .. },
+            ) if *l == load => {
                 *icy = title;
             }
             (EngineEvent::Ended { load, reason }, _) => self.ended(load, reason, now, fx),
@@ -686,8 +738,14 @@ impl Core {
         // Only the live LoadId of the current stage gets past this; an end-file
         // for an older load is stale by construction.
         let live = match &self.playback {
-            Playback::Track { stage: TrackStage::Loading { load: l, .. } | TrackStage::Playing { load: l, .. }, .. }
-            | Playback::Station { stage: StationStage::Connecting { load: l, .. } | StationStage::OnAir { load: l, .. }, .. } => *l,
+            Playback::Track {
+                stage: TrackStage::Loading { load: l, .. } | TrackStage::Playing { load: l, .. },
+                ..
+            }
+            | Playback::Station {
+                stage: StationStage::Connecting { load: l, .. } | StationStage::OnAir { load: l, .. },
+                ..
+            } => *l,
             _ => return,
         };
         if live != load {
@@ -930,10 +988,12 @@ mod tests {
         playing(&mut c, &['b', 'c', 'd', 'e'], t0);
         input(&mut c, Input::Resolved { id: id('b'), result: url('b', t0) }, t0);
         let l1 = load_of(&cmd(&mut c, Command::Next, t0));
-        let fx = input(&mut c, Input::Engine(EngineEvent::Ended { load: l1, reason: EndReason::Error("403".into()) }), t0);
+        let fx =
+            input(&mut c, Input::Engine(EngineEvent::Ended { load: l1, reason: EndReason::Error("403".into()) }), t0);
         assert!(fx.contains(&Effect::Resolve(id('b'))), "evicts and re-resolves: {fx:?}");
         let l2 = load_of(&input(&mut c, Input::Resolved { id: id('b'), result: url('b', t0) }, t0));
-        let fx = input(&mut c, Input::Engine(EngineEvent::Ended { load: l2, reason: EndReason::Error("403".into()) }), t0);
+        let fx =
+            input(&mut c, Input::Engine(EngineEvent::Ended { load: l2, reason: EndReason::Error("403".into()) }), t0);
         assert!(fx.iter().any(|e| matches!(e, Effect::Notify(n) if n.level == Level::Error)), "{fx:?}");
         assert!(fx.contains(&Effect::Resolve(id('c'))), "skips to c: {fx:?}");
         assert_eq!(now_title(&c, t0), Some(format!("title {}", vid('c'))));
@@ -1046,7 +1106,8 @@ mod tests {
         playing(&mut c, &[], t0);
         let fx = cmd(&mut c, Command::TogglePause, t0 + Duration::from_secs(4));
         assert_eq!(fx, vec![Effect::Engine(EngineCmd::SetPause(true))]);
-        let Some(Now::Track { stage: TrackView::Playing { clock, .. }, .. }) = c.snapshot(t0 + Duration::from_secs(9)).now
+        let Some(Now::Track { stage: TrackView::Playing { clock, .. }, .. }) =
+            c.snapshot(t0 + Duration::from_secs(9)).now
         else {
             panic!("playing")
         };
@@ -1064,12 +1125,15 @@ mod tests {
             volume: Volume::new(40),
             position: Some(Duration::from_secs(42)),
         };
-        let (mut c, fx) = Core::new(Restore { library: Library::default(), session: Some(session), initial_volume: Volume::new(70) });
+        let (mut c, fx) =
+            Core::new(Restore { library: Library::default(), session: Some(session), initial_volume: Volume::new(70) });
         assert_eq!(fx, vec![Effect::Engine(EngineCmd::SetVolume(Volume::new(40)))]);
         assert!(c.step(Input::Tick, t0).is_empty(), "no autoplay and no save of an unchanged session");
         cmd(&mut c, Command::TogglePause, t0);
         let fx = input(&mut c, Input::Resolved { id: id('a'), result: url('a', t0) }, t0);
-        assert!(fx.iter().any(|e| matches!(e, Effect::Engine(EngineCmd::Load { start: Some(s), .. }) if s.as_secs() == 42)));
+        assert!(
+            fx.iter().any(|e| matches!(e, Effect::Engine(EngineCmd::Load { start: Some(s), .. }) if s.as_secs() == 42))
+        );
     }
 
     #[test]
@@ -1102,6 +1166,8 @@ mod tests {
         let mut c = core();
         playing(&mut c, &[], t0);
         let fx = input(&mut c, Input::Engine(EngineEvent::Restarted), t0 + Duration::from_secs(30));
-        assert!(fx.iter().any(|e| matches!(e, Effect::Engine(EngineCmd::Load { start: Some(s), .. }) if s.as_secs() == 30)));
+        assert!(
+            fx.iter().any(|e| matches!(e, Effect::Engine(EngineCmd::Load { start: Some(s), .. }) if s.as_secs() == 30))
+        );
     }
 }
