@@ -1,0 +1,13 @@
+wavelet: third-party attribution
+================================
+
+Myx  (https://github.com/HaseebKhalid1507/Myx)
+    Copyright (c) 2026 Haseeb Khalid. MIT License (see MYX-LICENSE).
+    Copied and adapted from Myx: src/tui/paint/: theme.rs, color.rs, gradient.rs,
+    anim.rs, reactive.rs, components.rs, cover.rs, and the
+    render code in src/tui/ (layout, now-playing strip, gradient progress,
+    volume meter, footer, spectrum render, overlay, frame throttle).
+
+spotify-player  (https://github.com/aome510/spotify-player)
+    Copyright (c) 2021 Thang Pham. MIT License.
+    src/tui/paint/visualizer.rs (FFT band analysis) comes from spotify-player by way of Myx.

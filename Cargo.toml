@@ -1,0 +1,28 @@
+[package]
+name = "wavelet"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+# From the prototype, same versions.
+ratatui = "0.30.2"
+crossterm = "0.29.0"
+ratatui-image = { version = "11.1.0", default-features = false, features = ["crossterm"] }
+image = "0.25"
+color-thief = "0.2"
+rustfft = "6"
+serde_json = "1"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "native-tls"] }
+toml = { version = "1", default-features = false, features = ["parse", "serde"] }
+
+# New in v1.
+serde = { version = "1", features = ["derive", "rc"] }   # api.rs types are wire-ready for the later daemon
+url = { version = "2.5", features = ["serde"] }
+notify = "8"                                              # omarchy theme dir watch (inotify)
+mpris-server = "0.10"                                     # runs on its own thread under a local executor
+async-channel = "2.5"                                     # the one async inbox: snapshots into the MPRIS thread
+futures-lite = "2"                                        # block_on for the MPRIS thread
+dirs = "6"                                                # XDG paths
+
+# Deliberately absent: tokio. See DESIGN.md "Tradeoffs accepted".
