@@ -140,13 +140,13 @@ pub enum Playback {
 pub enum TrackStage {
     Resolving { attempt: Attempt, start: Option<Duration> },
     Loading { load: LoadId, attempt: Attempt, start: Option<Duration> },
-    Playing { load: LoadId, clock: Clock, duration: Option<Duration> },
+    Playing { load: LoadId, reached: Reached, clock: Clock, duration: Option<Duration> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StationStage {
     Connecting { load: LoadId, attempt: Attempt },
-    OnAir { load: LoadId, listened: Clock, icy: Option<String> },
+    OnAir { load: LoadId, reached: Reached, listened: Clock, icy: Option<String> },
 }
 
 /// The whole retry policy: one retry per item, then give up.
@@ -162,6 +162,23 @@ impl Attempt {
             Attempt::First => Some(Attempt::Retry),
             Attempt::Retry => None,
         }
+    }
+}
+
+/// The attempt that reached first audio, and when. A failure soon after
+/// counts against that attempt, so a stream that drops right after connecting
+/// cannot reconnect forever; one that played for a while starts over.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Reached {
+    attempt: Attempt,
+    at: Instant,
+}
+
+pub const STABLE_AFTER: Duration = Duration::from_secs(30);
+
+impl Reached {
+    fn attempt(self, now: Instant) -> Attempt {
+        if now.saturating_duration_since(self.at) >= STABLE_AFTER { Attempt::First } else { self.attempt }
     }
 }
 
@@ -632,7 +649,7 @@ impl Core {
                     TrackStage::Resolving { attempt, start } | TrackStage::Loading { attempt, start, .. } => {
                         (attempt, start)
                     }
-                    TrackStage::Playing { clock, .. } => (Attempt::First, Some(clock.at(now))),
+                    TrackStage::Playing { clock, reached, .. } => (reached.attempt(now), Some(clock.at(now))),
                 };
                 match attempt.next() {
                     Some(attempt) => {
@@ -651,7 +668,7 @@ impl Core {
             Playback::Station { entry, station, stage } => {
                 let attempt = match stage {
                     StationStage::Connecting { attempt, .. } => attempt,
-                    StationStage::OnAir { .. } => Attempt::First,
+                    StationStage::OnAir { reached, .. } => reached.attempt(now),
                 };
                 match attempt.next() {
                     Some(attempt) => {
@@ -697,19 +714,20 @@ impl Core {
     fn engine(&mut self, ev: EngineEvent, now: Instant, fx: &mut Vec<Effect>) {
         match (ev, &mut self.playback) {
             (EngineEvent::Began { load, duration, .. }, Playback::Track { track, stage, .. }) => {
-                if let TrackStage::Loading { load: l, start, .. } = *stage
+                if let TrackStage::Loading { load: l, start, attempt } = *stage
                     && l == load
                 {
                     let clock = Clock::Running { from: start.unwrap_or_default(), at: now };
-                    *stage = TrackStage::Playing { load, clock, duration: duration.or(track.duration) };
+                    let reached = Reached { attempt, at: now };
+                    *stage = TrackStage::Playing { load, reached, clock, duration: duration.or(track.duration) };
                 }
             }
             (EngineEvent::Began { load, icy, .. }, Playback::Station { stage, .. }) => {
-                if let StationStage::Connecting { load: l, .. } = *stage
+                if let StationStage::Connecting { load: l, attempt } = *stage
                     && l == load
                 {
-                    *stage =
-                        StationStage::OnAir { load, listened: Clock::Running { from: Duration::ZERO, at: now }, icy };
+                    let listened = Clock::Running { from: Duration::ZERO, at: now };
+                    *stage = StationStage::OnAir { load, reached: Reached { attempt, at: now }, listened, icy };
                 }
             }
             (
@@ -1026,6 +1044,22 @@ mod tests {
         assert!(fx.contains(&Effect::Engine(EngineCmd::Stop)), "{fx:?}");
         assert!(loaded_url(&fx).is_none(), "never advances to station 2");
         assert_eq!(c.snapshot(t0).now, None);
+    }
+
+    #[test]
+    fn a_station_that_drops_right_after_connecting_twice_stops_but_a_long_listen_reconnects() {
+        let t0 = Instant::now();
+        let mut c = core();
+        let s = station(1);
+        let eof = |load| Input::Engine(EngineEvent::Ended { load, reason: EndReason::Eof });
+        let l1 = load_of(&cmd(&mut c, Command::PlayStations { stations: vec![s.clone()], start: s.id.clone() }, t0));
+        input(&mut c, began(l1), t0);
+        let later = t0 + STABLE_AFTER + Duration::from_secs(1);
+        let l2 = load_of(&input(&mut c, eof(l1), later));
+        input(&mut c, began(l2), later);
+        let fx = input(&mut c, eof(l2), later + Duration::from_secs(2));
+        assert!(loaded_url(&fx).is_none(), "the retry dropped right away, so it stops: {fx:?}");
+        assert_eq!(c.snapshot(later).now, None);
     }
 
     #[test]

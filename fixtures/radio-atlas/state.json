@@ -1,0 +1,9 @@
+{
+  "favorites": [
+    {"uuid": "8b700f14-99e7-4f77-84eb-3ff9d0ad69a0", "name": "Radio The Voice", "url": "https://old.example/thevoice.m3u8", "homepage": "", "favicon": "", "country": "Bulgaria", "countryCode": "BG", "state": "", "language": "", "tags": "pop, dance", "codec": "AAC", "bitrate": 105, "votes": 1030, "clicks": 2, "latitude": null, "longitude": null},
+    {"uuid": "96202f73-0601-11e8-ae97-52543be04c81", "name": " Jazz FM ", "url": "http://jazz.example/stream", "homepage": "https://jazz.example/", "favicon": "https://jazz.example/icon.png", "country": "", "countryCode": "", "state": "", "language": "", "tags": "", "codec": "", "bitrate": 0, "votes": 0, "clicks": 0, "latitude": 51.5, "longitude": -0.1},
+    {"uuid": "not-a-uuid", "name": "Broken", "url": "http://broken.example/", "tags": "", "codec": "MP3", "bitrate": 128}
+  ],
+  "recent": [],
+  "volume": 100
+}

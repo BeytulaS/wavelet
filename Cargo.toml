@@ -24,5 +24,6 @@ mpris-server = "0.10"                                     # runs on its own thre
 async-channel = "2.5"                                     # the one async inbox: snapshots into the MPRIS thread
 futures-lite = "2"                                        # block_on for the MPRIS thread
 dirs = "6"                                                # XDG paths
+libc = "0.2"                                              # PR_SET_PDEATHSIG so mpv and pw-record die with us
 
 # Deliberately absent: tokio. See DESIGN.md "Tradeoffs accepted".

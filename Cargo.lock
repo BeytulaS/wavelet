@@ -3796,6 +3796,7 @@ dependencies = [
  "dirs",
  "futures-lite",
  "image",
+ "libc",
  "mpris-server",
  "notify",
  "ratatui",
