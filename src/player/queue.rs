@@ -18,6 +18,13 @@ use crate::domain::{ItemKey, Playable, RefillId, Track, VideoId};
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct EntryId(u64);
 
+impl EntryId {
+    /// For external ids such as the MPRIS track id.
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Entry {
     pub id: EntryId,

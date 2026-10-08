@@ -6,7 +6,7 @@ use wavelet::player::core::Restore;
 use wavelet::player::shell::runtime_dir;
 use wavelet::player::store::{Store, import_radio_atlas};
 use wavelet::player::{self, PlayerOpts};
-use wavelet::{sources, tui};
+use wavelet::{mpris, sources, tui};
 
 fn main() -> ExitCode {
     match run() {
@@ -49,5 +49,6 @@ fn run() -> Result<(), String> {
         http: http.clone(),
     };
     let player = player::spawn(opts).map_err(|e| e.to_string())?;
+    mpris::spawn(player.clone());
     tui::run(term, cfg, notices, player, http).map_err(|e| e.to_string())
 }
