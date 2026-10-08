@@ -31,7 +31,6 @@ fn run() -> Result<(), String> {
             let n = library.merge_stations(stations);
             notices.push(Notice { level: Level::Info, text: format!("imported {n} stations from Radio Atlas") });
         }
-        // Even when there was nothing to import: the import is offered once.
         library.radio_atlas_imported = true;
         if let Err(e) = store.save_library(&library) {
             notices.push(Notice { level: Level::Warn, text: format!("could not save favorites: {e}") });

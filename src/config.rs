@@ -1,7 +1,3 @@
-//! ~/.config/wavelet/config.toml and keymap.toml, parsed once at startup.
-//! A bad key yields an `Issue` and the default for that key only; the TUI shows
-//! issues as toasts. Nothing downstream re-validates.
-
 use std::path::{Path, PathBuf};
 
 use crate::domain::Volume;
@@ -16,7 +12,6 @@ pub struct Config {
     pub audio_device: Option<String>,
     pub volume: Volume,
     pub spectrum: bool,
-    /// Overrides layered onto the default keymap. `Action::Unbind` removes a default.
     pub keys: Vec<(KeySeq, Action)>,
 }
 
@@ -84,7 +79,6 @@ pub fn config_dir() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join("wavelet"))
 }
 
-/// Loads both files, writing commented defaults where they are missing.
 pub fn load() -> (Config, Vec<Issue>) {
     let Some(dir) = config_dir() else { return (Config::default(), vec![]) };
     let mut issues = Vec::new();

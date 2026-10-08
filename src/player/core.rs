@@ -3,9 +3,6 @@
 //!   Core::new(restore)            -> (Core, Vec<Effect>)
 //!   core.step(input, now)         -> Vec<Effect>
 //!   core.snapshot(now)            -> Snapshot
-//!
-//! The shell (shell.rs) feeds inputs, runs effects, and publishes snapshots.
-//! Tests do the same with no mpv and no network.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -25,8 +22,6 @@ use crate::player::queue::{EntryId, Fetch, Queue, Removed};
 pub enum Input {
     Command(Command),
     Engine(EngineEvent),
-    /// yt-dlp finished. Keyed by id, not ticket: a URL is useful to the cache
-    /// whoever asked for it, so a stale resolve is never wasted.
     Resolved {
         id: VideoId,
         result: Result<StreamUrl, String>,
@@ -39,20 +34,13 @@ pub enum Input {
     Tick,
 }
 
-/// mpv, already attributed by `mpv::attribute`. Every per-file event carries
-/// the `LoadId` it belongs to, bound from mpv's `playlist_entry_id`. Pause and
-/// volume are absent on purpose: the core owns both and mpv only follows.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EngineEvent {
-    /// First `time-pos > 0` after our `start-file`: audio is flowing. Carries
-    /// the duration and ICY title mpv reported before that, which no stage
-    /// before `Playing`/`OnAir` has room for.
     Began {
         load: LoadId,
         duration: Option<Duration>,
         icy: Option<String>,
     },
-    /// Throttled to whole-second steps by the attribution.
     Position {
         load: LoadId,
         pos: Duration,
@@ -65,8 +53,6 @@ pub enum EngineEvent {
         load: LoadId,
         title: Option<String>,
     },
-    /// `end-file` with reason eof or error. `stop` only follows our own
-    /// `loadfile replace` and is dropped before it gets here.
     Ended {
         load: LoadId,
         reason: EndReason,
@@ -85,7 +71,6 @@ pub enum EndReason {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     Engine(EngineCmd),
-    /// Run yt-dlp for this id. The cache dedupes, so the shell just spawns.
     Resolve(VideoId),
     Refill {
         ticket: RefillId,
@@ -100,14 +85,8 @@ pub enum Effect {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EngineCmd {
-    /// Also unpauses: anything newly loaded plays.
-    Load {
-        load: LoadId,
-        url: url::Url,
-        start: Option<Duration>,
-    },
+    Load { load: LoadId, url: url::Url, start: Option<Duration> },
     SetPause(bool),
-    /// Absolute; the core computes relative seeks against its own clock.
     Seek(Duration),
     SetVolume(Volume),
     Stop,
@@ -121,19 +100,9 @@ pub enum EngineCmd {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Playback {
     Idle,
-    /// The queue ran out while a radio refill is in flight. `refilled` resumes
-    /// from here; an empty refill falls back to `Idle`.
     AwaitingRefill,
-    Track {
-        entry: EntryId,
-        track: Arc<Track>,
-        stage: TrackStage,
-    },
-    Station {
-        entry: EntryId,
-        station: Arc<Station>,
-        stage: StationStage,
-    },
+    Track { entry: EntryId, track: Arc<Track>, stage: TrackStage },
+    Station { entry: EntryId, station: Arc<Station>, stage: StationStage },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,7 +118,6 @@ pub enum StationStage {
     OnAir { load: LoadId, reached: Reached, listened: Clock, icy: Option<String> },
 }
 
-/// The whole retry policy: one retry per item, then give up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Attempt {
     First,
@@ -165,9 +133,6 @@ impl Attempt {
     }
 }
 
-/// The attempt that reached first audio, and when. A failure soon after
-/// counts against that attempt, so a stream that drops right after connecting
-/// cannot reconnect forever; one that played for a while starts over.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Reached {
     attempt: Attempt,
@@ -217,22 +182,15 @@ impl Clock {
     }
 }
 
-/// Resolves past this many in flight are not started for warming or prefetch.
-/// A play always resolves.
 pub const RESOLVE_CAP: usize = 5;
-/// A failed resolve is not retried by warming or prefetch for this long.
 pub const FAILED_BACKOFF: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 enum Cached {
     Ready(StreamUrl),
-    /// Negative entry, so a dead prefetch does not respawn yt-dlp every step.
-    Failed {
-        until: Instant,
-    },
+    Failed { until: Instant },
 }
 
-/// URL cache plus the in-flight set. Owned by the core so the shell never dedupes.
 #[derive(Debug, Default)]
 pub struct StreamCache {
     entries: HashMap<VideoId, Cached>,
@@ -247,7 +205,6 @@ impl StreamCache {
         }
     }
 
-    /// Someone is waiting on this id. Ignores the cap and negative entries.
     pub fn want(&mut self, id: &VideoId, now: Instant) -> Option<Effect> {
         if self.get(id, now).is_some() || !self.in_flight.insert(id.clone()) {
             return None;
@@ -255,7 +212,6 @@ impl StreamCache {
         Some(Effect::Resolve(id.clone()))
     }
 
-    /// Ahead of need. Respects the cap and negative entries.
     pub fn warm(&mut self, id: &VideoId, now: Instant) -> Option<Effect> {
         let failed = matches!(self.entries.get(id), Some(Cached::Failed { until }) if *until > now);
         if failed || self.in_flight.len() >= RESOLVE_CAP {
@@ -305,7 +261,6 @@ impl Library {
         true
     }
 
-    /// Idempotent merge by StationId; existing entries win. Returns how many were added.
     pub fn merge_stations(&mut self, stations: Vec<Arc<Station>>) -> usize {
         let before = self.stations.len();
         for s in stations {
@@ -348,15 +303,12 @@ pub struct Core {
     library: Library,
     volume: Volume,
     tickets: Tickets,
-    /// The last saved session without its position, and when it was saved.
-    /// Saves are derived by comparing; position alone never triggers one.
     saved: (Session, Option<Instant>),
     /// Position to resume at when the user presses play after a restore.
     resume_at: Option<Duration>,
 }
 
 pub const SESSION_DEBOUNCE: Duration = Duration::from_secs(2);
-/// `b` past this point restarts the track instead of going back.
 pub const RESTART_AFTER: Duration = Duration::from_secs(3);
 
 fn notice(level: Level, text: impl Into<String>) -> Effect {
@@ -521,7 +473,6 @@ impl Core {
                 }
             }
             Command::Seek(to) => {
-                // The kind split makes a track's Playing stage the only place a seek can land.
                 if let Playback::Track { stage: TrackStage::Playing { clock, duration, .. }, .. } = &mut self.playback {
                     let cur = clock.at(now);
                     let target = match to {
@@ -573,8 +524,6 @@ impl Core {
         fx.push(Effect::Engine(EngineCmd::SetPause(!clock.running())));
     }
 
-    /// Begin playing whatever the queue cursor points at. The single entry point
-    /// for "something new should play"; every command funnels here.
     fn start_current(&mut self, start: Option<Duration>, now: Instant, fx: &mut Vec<Effect>) {
         self.resume_at = None;
         let Some(entry) = self.queue.current().cloned() else {
@@ -613,8 +562,6 @@ impl Core {
         self.playback = Playback::Idle;
     }
 
-    /// Advance and start. At the end of the queue, wait for a radio refill that
-    /// is due or in flight; otherwise stop if `stop_at_end`, or keep playing.
     fn skip(&mut self, stop_at_end: bool, now: Instant, fx: &mut Vec<Effect>) {
         if self.queue.advance().is_some() {
             self.start_current(None, now, fx);
@@ -643,9 +590,6 @@ impl Core {
         }
     }
 
-    /// The one place a failure is handled: retry per `Attempt`, then skip a
-    /// track or stop a station. A station list never auto-advances, because a
-    /// listener who picked one station wants that station.
     fn fail_current(&mut self, reason: String, now: Instant, fx: &mut Vec<Effect>) {
         match self.playback.clone() {
             Playback::Track { entry, track, stage } => {
@@ -757,8 +701,6 @@ impl Core {
     }
 
     fn ended(&mut self, load: LoadId, reason: EndReason, now: Instant, fx: &mut Vec<Effect>) {
-        // Only the live LoadId of the current stage gets past this; an end-file
-        // for an older load is stale by construction.
         let live = match &self.playback {
             Playback::Track {
                 stage: TrackStage::Loading { load: l, .. } | TrackStage::Playing { load: l, .. },
@@ -780,7 +722,6 @@ impl Core {
         }
     }
 
-    /// mpv was respawned. Idempotent: reload whatever should be audible.
     fn restarted(&mut self, now: Instant, fx: &mut Vec<Effect>) {
         fx.push(Effect::Engine(EngineCmd::SetVolume(self.volume)));
         let start = match &self.playback {
@@ -864,7 +805,6 @@ mod tests {
         quiet(core.step(i, now))
     }
 
-    /// Drops session saves, which every queue change emits and no test here is about.
     fn quiet(fx: Vec<Effect>) -> Vec<Effect> {
         fx.into_iter().filter(|e| !matches!(e, Effect::SaveSession(_))).collect()
     }
@@ -903,7 +843,6 @@ mod tests {
         })
     }
 
-    /// Plays `a` with radio refill `rest`, through to first audio. Returns the load.
     fn playing(core: &mut Core, rest: &[char], t0: Instant) -> LoadId {
         let fx = cmd(core, Command::PlayTrack(track(&vid('a'))), t0);
         let ticket = refill_ticket(&fx).expect("refill on play");
@@ -1106,8 +1045,6 @@ mod tests {
         assert!(snap.queue.iter().all(|r| r.id != current));
     }
 
-    /// A station's `StationStage` has no clock to seek and `Command::Seek`
-    /// matches only `TrackStage::Playing`, so a station seek cannot be written.
     #[test]
     fn seek_moves_a_playing_track_and_does_nothing_on_a_station() {
         let t0 = Instant::now();

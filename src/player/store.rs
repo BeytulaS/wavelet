@@ -1,8 +1,3 @@
-//! Files the player owns: library.json, session.json, and the one-time Radio
-//! Atlas import. File schemas are private to this module; the core only sees
-//! `Library` and `Session`. Writes go to a temp file and rename over the old
-//! one, so a crash mid-write leaves the previous file.
-
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -24,7 +19,6 @@ pub struct Store {
 
 const VERSION: u32 = 1;
 
-/// On-disk shape. Versioned so a later SQLite store can migrate from it.
 #[derive(Serialize, Deserialize)]
 struct LibraryFile {
     version: u32,
@@ -36,7 +30,6 @@ struct LibraryFile {
 #[derive(Serialize, Deserialize)]
 struct SessionFile {
     version: u32,
-    /// Raw values, so one entry that no longer parses drops alone.
     queue: Vec<Value>,
     cursor: Option<usize>,
     radio_seed: Option<VideoId>,
@@ -72,7 +65,6 @@ struct AtlasState {
 }
 
 impl Store {
-    /// `$XDG_DATA_HOME/wavelet/library.json` and `$XDG_STATE_HOME/wavelet/session.json`.
     pub fn at_xdg() -> Option<Store> {
         Some(Store::at(dirs::data_dir()?.join("wavelet"), dirs::state_dir()?.join("wavelet")))
     }
@@ -81,7 +73,6 @@ impl Store {
         Store { library: data_dir.join("library.json"), session: state_dir.join("session.json") }
     }
 
-    /// Missing file: default. Corrupt file: moved aside to `.bad`, default, and a warning.
     pub fn load_library(&self) -> (Library, Option<String>) {
         let Ok(text) = std::fs::read_to_string(&self.library) else { return (Library::default(), None) };
         match serde_json::from_str::<LibraryFile>(&text) {
@@ -96,7 +87,6 @@ impl Store {
         }
     }
 
-    /// Missing or corrupt: `None`. Entries that fail to parse are dropped.
     pub fn load_session(&self) -> Option<Session> {
         let f: SessionFile = serde_json::from_str(&std::fs::read_to_string(&self.session).ok()?).ok()?;
         let mut queue = Vec::new();
@@ -146,8 +136,6 @@ impl Store {
     }
 }
 
-/// Radio Atlas favorites from `dir/state.json`, with `dir/url-overrides.json`
-/// (uuid to url) applied. Stations whose uuid or url fail to parse are skipped.
 pub fn import_radio_atlas(dir: &Path) -> Result<Vec<Arc<Station>>, String> {
     let state = std::fs::read_to_string(dir.join("state.json")).map_err(|e| e.to_string())?;
     let state: AtlasState = serde_json::from_str(&state).map_err(|e| e.to_string())?;

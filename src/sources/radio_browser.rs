@@ -1,5 +1,3 @@
-//! radio-browser.info through the `all.` round-robin name, as the prototype did.
-
 use serde::Deserialize;
 use url::Url;
 
@@ -46,7 +44,7 @@ pub fn top_voted(http: &Http) -> Result<Vec<Station>, String> {
     get(http, &format!("{API}/stations/topvote/40?hidebroken=true"))
 }
 
-/// Counts a play, as radio-browser asks clients to. Fire and forget.
+/// Counts a play, as radio-browser asks clients to.
 pub fn count_click(http: &Http, id: &StationId) {
     let _ = http.get(format!("{API}/url/{}", id.as_str())).send();
 }
@@ -57,7 +55,6 @@ fn get(http: &Http, url: &str) -> Result<Vec<Station>, String> {
     parse_stations(&body)
 }
 
-/// Pure. Drops stations whose uuid or stream url fail to parse.
 pub fn parse_stations(body: &str) -> Result<Vec<Station>, String> {
     let raw: Vec<RbStation> = serde_json::from_str(body).map_err(|e| e.to_string())?;
     Ok(raw.into_iter().filter_map(station).collect())

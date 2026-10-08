@@ -1,6 +1,3 @@
-//! The lists the user moves through. View state only. Search results are never
-//! the queue: Enter copies an item into a `Command`.
-
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
@@ -16,7 +13,6 @@ pub enum Tab {
     YouTube,
     Radio,
     Favorites,
-    /// The play queue, from the snapshot. Not a source; `gq` toggles it.
     Queue,
 }
 
@@ -33,7 +29,6 @@ impl Tab {
     }
 }
 
-/// Selection and sticky scroll offset for one list.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Cursor {
     pub selected: usize,
@@ -47,7 +42,6 @@ pub struct ResultList {
     pub state: Fetch,
 }
 
-/// The search slot. `Loading` holds the only ticket whose result is accepted.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Fetch {
     Idle,
@@ -57,7 +51,6 @@ pub enum Fetch {
 
 pub struct Browse {
     pub tab: Tab,
-    /// The source tab to return to when the queue view closes.
     source: Tab,
     pub youtube: ResultList,
     pub radio: ResultList,
@@ -66,10 +59,8 @@ pub struct Browse {
     tickets: Tickets,
 }
 
-/// One row of whatever list is showing.
 pub struct Row<'a> {
     pub item: &'a Playable,
-    /// Set in the queue view.
     pub entry: Option<EntryId>,
     pub from_radio: bool,
 }
@@ -146,7 +137,6 @@ impl Browse {
         }
     }
 
-    /// Draw writes back the offset it chose, so scrolling stays sticky.
     pub fn set_offset(&mut self, offset: usize) {
         self.cursor_mut().offset = offset;
     }
@@ -160,8 +150,6 @@ impl Browse {
         })
     }
 
-    /// The stations in the visible list, in display order. Enter on a station
-    /// queues all of them, so `n` walks the list.
     pub fn stations(&self, snap: &Snapshot) -> Vec<Arc<Station>> {
         self.rows(snap)
             .into_iter()
@@ -198,7 +186,6 @@ impl Browse {
         self.set_tab(to, snap);
     }
 
-    /// Search runs on a searchable tab; from Favorites or the queue it goes to YouTube.
     pub fn to_search_tab(&mut self) {
         if self.list(self.tab).is_none() {
             self.tab = if self.source == Tab::Radio { Tab::Radio } else { Tab::YouTube };
@@ -206,9 +193,6 @@ impl Browse {
         }
     }
 
-    /// Start a search on the active tab. The new ticket replaces the slot's, so
-    /// any search still running for this tab is stale by construction. Radio
-    /// with an empty query means top-voted.
     pub fn submit(&mut self, query: String, tx: &Sender<Msg>, http: &Http) {
         let tab = self.tab;
         let ticket = self.tickets.issue();
@@ -228,8 +212,6 @@ impl Browse {
         });
     }
 
-    /// Apply a result if its ticket still owns the slot. A fresh YouTube result
-    /// warms the top three so Enter is fast.
     pub fn landed(&mut self, tab: Tab, ticket: SearchId, result: Result<Vec<Playable>, String>, player: &PlayerHandle) {
         let Some(list) = self.list_mut(tab) else { return };
         if list.state != Fetch::Loading(ticket) {

@@ -1,7 +1,3 @@
-//! Rendering. `frame(f, &ui, now)` reads `&Ui` and returns what it measured
-//! instead of mutating through Cells. Layout bodies are ported from the
-//! prototype the user approved.
-
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
@@ -25,7 +21,6 @@ use crate::tui::{LayoutKind, Mode, Ui};
 pub struct FrameOut {
     /// Rows the active list could show; drives half-page motions.
     pub list_rows: usize,
-    /// Scroll offset chosen this frame for the active list (sticky; fed back).
     pub list_offset: usize,
 }
 
@@ -62,8 +57,6 @@ fn scroll_offset(offset: usize, selected: usize, cap: usize, total: usize, margi
     offset.min(selected.saturating_sub(margin)).max((selected + margin + 1).saturating_sub(cap)).min(total - cap)
 }
 
-/// Position to draw: the snapshot's position extrapolated from its receive
-/// time while running.
 pub fn clock_now(c: &ClockView, ui: &Ui, now: Instant) -> Duration {
     if c.running { c.pos + now.saturating_duration_since(ui.received) } else { c.pos }
 }
@@ -130,7 +123,6 @@ fn now_key(ui: &Ui) -> Option<ItemKey> {
 fn is_playing_row(ui: &Ui, row: &Row) -> bool {
     match (row.entry, &ui.snap.now) {
         (Some(id), Some(Now::Track { entry, .. } | Now::Station { entry, .. })) => id == *entry,
-        // Stopped: mark where space resumes.
         (Some(id), None) => ui.snap.cursor.and_then(|c| ui.snap.queue.get(c)).is_some_and(|r| r.id == id),
         (None, _) => now_key(ui).is_some_and(|k| k == row.item.key()),
     }
@@ -146,7 +138,6 @@ fn wordmark<'a>(theme: Theme) -> Vec<Span<'a>> {
         .collect()
 }
 
-/// Square art box (in cells) that fits `max_h` rows and `max_w` columns.
 fn art_size(ui: &Ui, max_w: u16, max_h: u16) -> (u16, u16) {
     let font = ui.art.picker.font_size();
     let fw = font.width.max(1) as u32;
@@ -198,8 +189,6 @@ fn render_spectrum(f: &mut Frame, ui: &Ui, theme: Theme, vrect: Rect) {
         let lo = x * NUM_BANDS / w;
         let hi = (((x + 1) * NUM_BANDS / w).max(lo + 1)).min(NUM_BANDS);
         let v = values[lo..hi].iter().sum::<f32>() / (hi - lo) as f32;
-        // Music loses about 3 dB per octave, so a linear scale leaves the highs
-        // flat: tilt 24 dB across the 8.4-octave axis and show a 30 dB window.
         let db = 20.0 * (v / peak).max(1e-6).log10() + 24.0 * x as f32 / w as f32;
         *c = ((db + 30.0) / 30.0).clamp(0.0, 1.0);
     }
@@ -238,7 +227,6 @@ fn render_spectrum(f: &mut Frame, ui: &Ui, theme: Theme, vrect: Rect) {
     f.render_widget(Paragraph::new(lines), vrect);
 }
 
-/// Title, artist line, album/meta line for the playing item.
 fn now_lines(ui: &Ui, theme: Theme, width: usize) -> Vec<Line<'static>> {
     let (title, artist, meta) = match &ui.snap.now {
         None => {
@@ -317,7 +305,6 @@ fn empty_hint(ui: &Ui) -> &'static str {
     }
 }
 
-/// Myx sidebar rows: left bar and title, subtitle muted on the right.
 fn render_list_compact(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &mut FrameOut) {
     f.render_widget(Block::default().style(theme.panel()), area);
     let inner = area.inner(Margin::new(2, 1));
@@ -371,7 +358,6 @@ fn render_list_compact(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &m
     }
 }
 
-/// Dense table rows with columns.
 fn render_list_table(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &mut FrameOut) {
     f.render_widget(Block::default().style(theme.panel()), area);
     let inner = area.inner(Margin::new(2, 1));
@@ -634,7 +620,6 @@ fn render_help(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect) {
     force_area(f, rect);
 }
 
-/// Completions for a pending prefix like `g`, after it has waited a moment.
 fn render_prefix(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, now: Instant) {
     let Some((prefix, since)) = ui.keys.pending() else { return };
     if now.saturating_duration_since(since) < PREFIX_POPUP_AFTER {

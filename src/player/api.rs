@@ -29,7 +29,6 @@ pub enum Command {
     Jump(EntryId),
     Remove(EntryId),
     TogglePause,
-    /// Absolute pause for MPRIS Play and Pause.
     SetPaused(bool),
     /// Ignored unless a track is playing. Stations have no seek; see `core::Playback`.
     Seek(SeekTo),
@@ -78,7 +77,6 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// What a client shows before the player's first snapshot arrives.
     pub fn empty() -> Snapshot {
         Snapshot {
             now: None,
@@ -98,8 +96,6 @@ pub struct QueueRow {
     pub from_radio: bool,
 }
 
-/// Split by media kind like `core::Playback`, so a client cannot read a
-/// duration or a seekable position off a station.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Now {
     Track { entry: EntryId, track: Arc<Track>, stage: TrackView },
@@ -108,7 +104,6 @@ pub enum Now {
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum TrackView {
-    /// Waiting on yt-dlp.
     Resolving,
     /// loadfile sent, no audio yet.
     Loading,

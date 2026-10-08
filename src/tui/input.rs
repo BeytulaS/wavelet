@@ -2,7 +2,6 @@
 //!
 //! The keymap is data: a table from key sequence to `Action`, defaults below,
 //! overrides from keymap.toml. `KeyState::feed` is a pure prefix/count machine.
-//! `dispatch` is the one match that turns actions into effects.
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -15,11 +14,8 @@ use crate::player::api::{Command, Level, Notice, SeekTo, VolumeTo};
 use crate::tui::browse::{Selected, Tab};
 use crate::tui::{Mode, Ui};
 
-/// Generates `Action`, its kebab-case names (the keymap.toml spelling), and
-/// the help text, from one table so they cannot drift apart.
 macro_rules! actions {
     ($($variant:ident $name:literal $help:literal,)*) => {
-        /// Everything a key can mean.
         #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
         pub enum Action { $($variant,)* }
 
@@ -74,8 +70,6 @@ impl FromStr for Action {
     }
 }
 
-/// A key with modifiers, normalized: a shifted letter is its uppercase char
-/// with no SHIFT bit.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Key {
     pub code: KeyCode,
@@ -108,8 +102,6 @@ impl Key {
     }
 }
 
-/// "g g", "gg", "C-d", "space", "enter". Tokens are space-separated; a token of
-/// several plain characters is a sequence of those characters.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct KeySeq(pub Vec<Key>);
 
@@ -191,7 +183,6 @@ const DEFAULTS: &[(&str, Action)] = &[
 
 pub struct Keymap {
     bindings: HashMap<KeySeq, Action>,
-    /// Every proper prefix of a binding; derived from `bindings`.
     prefixes: HashSet<Vec<Key>>,
 }
 
@@ -210,7 +201,6 @@ impl Keymap {
         Keymap { bindings, prefixes }
     }
 
-    /// For the help overlay and the prefix popup, sorted by action order.
     pub fn bindings_starting_with(&self, prefix: &[Key]) -> Vec<(String, Action)> {
         let mut v: Vec<(String, Action)> =
             self.bindings.iter().filter(|(k, _)| k.0.starts_with(prefix)).map(|(k, a)| (k.label(), *a)).collect();
@@ -228,21 +218,14 @@ pub struct KeyState {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Fed {
-    /// A prefix (or count digit) is pending.
     Pending,
-    Fire {
-        action: Action,
-        count: u32,
-    },
+    Fire { action: Action, count: u32 },
     Unbound,
 }
 
 pub const PREFIX_POPUP_AFTER: Duration = Duration::from_millis(300);
 
 impl KeyState {
-    /// Pure. A bound digit fires its binding; unbound digits build a count
-    /// ("5j"). Pending plus key: an exact binding fires, a proper prefix waits,
-    /// anything else is unbound and resets.
     pub fn feed(&mut self, map: &Keymap, key: Key, now: Instant) -> Fed {
         let mut seq = std::mem::take(&mut self.pending);
         seq.push(key);
@@ -271,7 +254,6 @@ impl KeyState {
         Fed::Unbound
     }
 
-    /// The pending prefix and when it started, for the completion popup.
     pub fn pending(&self) -> Option<(&[Key], Instant)> {
         self.since.filter(|_| !self.pending.is_empty()).map(|t| (self.pending.as_slice(), t))
     }
@@ -340,7 +322,6 @@ pub fn dispatch(ui: &mut Ui, action: Action, now: Instant) {
         Action::VolumeDown => p.send(Command::Volume(VolumeTo::By(-5))),
         Action::VolumeUp => p.send(Command::Volume(VolumeTo::By(5))),
         Action::Activate => match ui.browse.selected(&ui.snap) {
-            // The selection travels by value; nothing downstream holds an index.
             Some(Selected::Item(Playable::Track(t))) => p.send(Command::PlayTrack(t)),
             Some(Selected::Item(Playable::Station(s))) => {
                 p.send(Command::PlayStations { stations: ui.browse.stations(&ui.snap), start: s.id.clone() })

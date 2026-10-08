@@ -10,7 +10,6 @@ use std::time::Duration;
 
 pub type Http = reqwest::blocking::Client;
 
-/// Built once in `main` and cloned; clones share one connection pool.
 pub fn http() -> Result<Http, String> {
     reqwest::blocking::Client::builder()
         .user_agent(concat!("wavelet/", env!("CARGO_PKG_VERSION")))

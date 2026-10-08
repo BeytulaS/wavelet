@@ -1,10 +1,3 @@
-//! The player thread against a real mpv. Ignored by default because it plays
-//! audio; run it into a null sink:
-//!
-//!   mod=$(pactl load-module module-null-sink sink_name=wavelet_test)
-//!   WAVELET_TEST_AUDIO_DEVICE=pipewire/wavelet_test cargo test --test player_live -- --ignored
-//!   pactl unload-module $mod
-
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
@@ -16,7 +9,6 @@ use wavelet::player::core::{Library, Restore};
 use wavelet::player::store::Store;
 use wavelet::player::{Command, Out, PlayerOpts};
 
-/// 16-bit mono PCM sine, `secs` long.
 fn write_wav(path: &Path, secs: u32) {
     let rate = 8000u32;
     let samples: Vec<i16> = (0..rate * secs)

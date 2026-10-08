@@ -1,8 +1,4 @@
 //! The player thread: the I/O half of the player.
-//!
-//! One thread owns `Core` and the mpv child. It reads one inbox, steps the
-//! core, runs the returned effects, and publishes a snapshot when it changed.
-//! Workers (yt-dlp, HTTP, the mpv socket reader) only send into the inbox.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -22,8 +18,6 @@ use crate::player::mpv::{Attribution, attribute};
 use crate::player::store::Store;
 use crate::sources::{Http, radio_browser, ytdlp, ytm};
 
-/// The only way to talk to the player. Cloneable. The later daemon client
-/// implements the same methods over the Unix socket.
 #[derive(Clone)]
 pub struct PlayerHandle {
     tx: Sender<Inbox>,
@@ -60,12 +54,8 @@ pub struct PlayerOpts {
     pub http: Http,
 }
 
-/// Everything the player thread can receive.
 pub enum Inbox {
-    /// Commands, worker results, and attributed mpv events.
     Core(Input),
-    /// The mpv socket hit EOF. Carries the generation of the reader that saw it,
-    /// so a reader of an already-replaced mpv cannot trigger a second respawn.
     MpvGone(u64),
     Subscribe(Sink),
     Shutdown(Sender<()>),
@@ -156,7 +146,6 @@ impl Shell {
     }
 
     fn respawn_mpv(&mut self) -> bool {
-        // A crash loop (say, a bad audio device) must not spin.
         if self.respawned.is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
             thread::sleep(Duration::from_secs(2));
         }
@@ -210,7 +199,6 @@ impl Shell {
         self.broadcast(&Out::Notice(Notice { level, text }));
     }
 
-    /// Derived publish: build, compare, send on difference.
     fn publish_if_changed(&mut self, now: Instant) {
         let snap = self.core.snapshot(now);
         if *self.last != snap {
@@ -225,8 +213,6 @@ impl Shell {
     }
 }
 
-/// The mpv child and the write half of its JSON IPC socket. A reader thread per
-/// child attributes lines with `mpv::attribute` and forwards core events.
 struct Mpv {
     child: Child,
     sock: UnixStream,
@@ -309,7 +295,6 @@ impl Mpv {
     }
 
     fn write(&mut self, msg: Value) {
-        // A failed write means mpv is gone; the reader's EOF drives the respawn.
         let _ = writeln!(self.sock, "{msg}");
     }
 
@@ -353,8 +338,6 @@ impl Drop for Mpv {
     }
 }
 
-/// The child gets SIGTERM if the spawning thread dies, so a crash in wavelet
-/// never leaves an idle mpv or pw-record behind.
 pub fn die_with_parent(cmd: &mut std::process::Command) {
     // SAFETY: prctl is async-signal-safe and touches no Rust state.
     unsafe {
@@ -365,7 +348,6 @@ pub fn die_with_parent(cmd: &mut std::process::Command) {
     }
 }
 
-/// `$XDG_RUNTIME_DIR/wavelet`, falling back to /tmp when unset.
 pub fn runtime_dir() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from).join("wavelet")
 }

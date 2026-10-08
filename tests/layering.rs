@@ -1,6 +1,3 @@
-//! The player, the sources, and the domain must stay free of UI types, so the
-//! player can move into a daemon without a refactor.
-
 use std::path::{Path, PathBuf};
 
 const FORBIDDEN: [&str; 3] = ["ratatui", "crossterm", "tui::"];

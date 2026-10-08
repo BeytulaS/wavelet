@@ -1,6 +1,3 @@
-//! Album art and station favicons: fetch, decode, and derive the album theme
-//! off the UI thread. Drawing uses the ported Myx `Cover`.
-
 use std::sync::mpsc::Sender;
 
 use image::DynamicImage;
@@ -31,8 +28,6 @@ impl Art {
         Art { picker, wanted: None, cover: None }
     }
 
-    /// Now playing changed. Returns whether the cover was cleared (no art), in
-    /// which case the caller repaints the box.
     pub fn want(&mut self, url: Option<&Url>, tx: &Sender<Msg>, http: &Http) -> bool {
         if url == self.wanted.as_ref() {
             return false;
@@ -54,7 +49,6 @@ impl Art {
         false
     }
 
-    /// Identity check against `wanted`. Returns the album theme when the cover changed.
     pub fn accept(&mut self, l: Loaded) -> Option<Theme> {
         if self.wanted.as_ref() != Some(&l.url) {
             return None;

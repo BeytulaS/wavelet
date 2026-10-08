@@ -1,9 +1,3 @@
-//! Spectrum from `pw-record --target wavelet` (mpv runs with
-//! --audio-client-name=wavelet). A capture thread feeds the ported analyzer;
-//! the renderer reads the bands with `try_lock`, so a draw never waits.
-//!
-//! Client-side on purpose: a later daemon never computes spectra nobody draws.
-
 use std::io::Read;
 use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -44,7 +38,6 @@ impl Spectrum {
         self.enabled && self.bands.try_lock().is_ok_and(|b| b.is_active)
     }
 
-    /// Kills pw-record now, so quitting leaves no capture behind.
     pub fn stop(&self) {
         self.want.store(false, Ordering::Relaxed);
         if let Ok(mut slot) = self.child.lock()

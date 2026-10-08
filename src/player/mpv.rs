@@ -1,6 +1,3 @@
-//! Attribution of mpv's IPC lines to our loads. Pure; runs on the socket
-//! reader thread and is tested on a recorded transcript.
-//!
 //! mpv 0.41 facts this relies on: `loadfile` sent with `request_id = LoadId`
 //! is answered with `{"data":{"playlist_entry_id":N},"request_id":R}` before the
 //! matching `start-file`; `start-file` and `end-file` carry `playlist_entry_id`;
@@ -18,7 +15,6 @@ use crate::player::core::{EndReason, EngineEvent};
 #[derive(Debug, Default)]
 pub struct Attribution {
     bound: HashMap<i64, LoadId>,
-    /// The entry of the last `start-file`, until its `end-file`.
     playing: Option<Playing>,
 }
 
@@ -28,7 +24,6 @@ struct Playing {
     load: LoadId,
     began: bool,
     last_pos: Duration,
-    /// Reported before first audio; handed over in `Began`.
     duration: Option<Duration>,
     icy: Option<String>,
 }
@@ -92,7 +87,6 @@ pub fn attribute(a: &mut Attribution, line: &Value) -> Option<EngineEvent> {
                     }
                 }
                 "metadata/by-key/icy-title" => {
-                    // Stream-supplied text goes to the terminal; drop control characters.
                     let title = data.as_str().map(|s| s.chars().filter(|c| !c.is_control()).collect::<String>());
                     let title = title.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
                     if p.began {
@@ -123,8 +117,6 @@ mod tests {
         LoadId::from_request_id(n)
     }
 
-    /// Recorded by tools/record_mpv.py: two loads of a 1 s sine (the second
-    /// replaces the first mid-play and reaches eof), then a missing file.
     #[test]
     fn the_recorded_transcript_attributes_to_the_right_loads() {
         let text = include_str!("../../fixtures/mpv_transcript.jsonl");

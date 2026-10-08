@@ -1,6 +1,3 @@
-//! yt-dlp stream resolution. The shell runs each resolve on its own thread;
-//! the core's in-flight set decides how many run.
-
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -8,9 +5,7 @@ use url::Url;
 
 use crate::domain::{StreamUrl, VideoId};
 
-/// googlevideo URLs stop working at `expire=`; stop using them a bit earlier.
 const EXPIRY_MARGIN: Duration = Duration::from_secs(300);
-/// Used when a URL has no `expire=` (googlevideo always sends it today).
 const DEFAULT_LIFETIME: Duration = Duration::from_secs(3600);
 
 /// `yt-dlp --no-config -f bestaudio -g https://music.youtube.com/watch?v=<id>`.

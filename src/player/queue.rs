@@ -5,8 +5,6 @@
 //! - `cursor` is `None` or `< entries.len()`.
 //! - `EntryId`s are unique for the life of the process and never reused, so a
 //!   client holding one can only ever hit the entry it meant or nothing.
-//! - Every `replace` resets the radio fetch, which makes a late refill for an
-//!   old queue inert.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -19,7 +17,6 @@ use crate::domain::{ItemKey, Playable, RefillId, Track, VideoId};
 pub struct EntryId(u64);
 
 impl EntryId {
-    /// For external ids such as the MPRIS track id.
     pub fn get(self) -> u64 {
         self.0
     }
@@ -47,13 +44,12 @@ pub struct Queue {
 enum Radio {
     #[default]
     Off,
-    /// Autoplay is on. `seed` is the track the radio grew from; refills seed
-    /// from the current track, because re-asking for `RDAMVM<seed>` returns the
-    /// same list and dedupe would drop all of it.
-    On { seed: VideoId, fetch: Fetch },
+    On {
+        seed: VideoId,
+        fetch: Fetch,
+    },
 }
 
-/// The radio refill slot.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub enum Fetch {
     #[default]
@@ -62,8 +58,6 @@ pub enum Fetch {
         ticket: RefillId,
         seed: VideoId,
     },
-    /// A refill seeded by `at` added nothing (or failed). No refill runs until
-    /// the current track is a different one, so an empty answer cannot loop.
     Dry {
         at: VideoId,
     },
@@ -73,14 +67,10 @@ pub enum Fetch {
 pub enum Removed {
     NotFound,
     Other,
-    /// The current entry left the queue. The cursor now points at what followed
-    /// it (or nothing); playback decides whether to start that.
     Current,
 }
 
 impl Queue {
-    /// Replace everything. A `radio_seed` turns autoplay on (YouTube Enter);
-    /// `None` turns it off (stations). The entry at `start` (clamped) is current.
     pub fn replace(&mut self, items: Vec<Playable>, start: usize, radio_seed: Option<VideoId>) {
         let entries = items.into_iter().map(|item| self.entry(item, false)).collect();
         self.entries = entries;
@@ -91,7 +81,6 @@ impl Queue {
         };
     }
 
-    /// `replace` for session restore: an out-of-range cursor becomes `None`.
     pub fn restore(&mut self, items: Vec<Playable>, cursor: Option<usize>, radio_seed: Option<VideoId>) {
         self.replace(items, cursor.unwrap_or(0), radio_seed);
         if cursor.is_none_or(|c| c >= self.entries.len()) {
@@ -104,7 +93,6 @@ impl Queue {
         Entry { id: EntryId(self.next_id), item, from_radio }
     }
 
-    /// Insert right after the cursor, or at the end when there is no cursor.
     pub fn insert_next(&mut self, item: Playable) -> EntryId {
         let at = self.cursor.map_or(self.entries.len(), |c| c + 1);
         let e = self.entry(item, false);
@@ -185,8 +173,6 @@ impl Queue {
         }
     }
 
-    /// The seed for a refill that is due: radio on, nothing in flight, the
-    /// current entry is a track not already found dry, and few enough remain.
     pub fn refill_wanted(&self) -> Option<VideoId> {
         let Radio::On { fetch, .. } = &self.radio else { return None };
         let Some(Playable::Track(t)) = self.current().map(|e| &e.item) else { return None };
@@ -204,9 +190,6 @@ impl Queue {
         }
     }
 
-    /// Apply a refill result. `None` when `ticket` is not the one in flight,
-    /// which is always the case after a `replace`. Otherwise the number of new
-    /// entries, deduped against the whole queue. `tracks: None` is a failed fetch.
     pub fn refill_landed(&mut self, ticket: RefillId, tracks: Option<Vec<Arc<Track>>>) -> Option<usize> {
         let Radio::On { fetch, .. } = &mut self.radio else { return None };
         let Fetch::InFlight { ticket: t, seed } = fetch else { return None };

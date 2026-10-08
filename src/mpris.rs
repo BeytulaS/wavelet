@@ -1,10 +1,3 @@
-//! MPRIS on its own thread. mpris-server is async (zbus); this is the only
-//! async code in wavelet, so it gets one thread and `block_on` instead of a
-//! runtime under everything.
-//!
-//! In: snapshots through a `Sink` that pushes into an async channel.
-//! Out: `Command`s through the same `PlayerHandle` the TUI uses.
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -18,13 +11,11 @@ pub fn spawn(player: PlayerHandle) {
     let (tx, rx) = async_channel::bounded::<Arc<Snapshot>>(1);
     player.subscribe(Box::new(move |out| {
         if let Out::Snapshot(s) = out {
-            // Latest wins: a slow D-Bus never backs up the player thread.
             let _ = tx.force_send(s.clone());
         }
         !tx.is_closed()
     }));
     let _ = std::thread::Builder::new().name("mpris".into()).spawn(move || {
-        // No terminal to report to: the TUI owns it. Without D-Bus, wavelet runs without MPRIS.
         let _ = futures_lite::future::block_on(serve(player, rx));
     });
 }
@@ -82,7 +73,6 @@ struct Meta {
 #[derive(Default)]
 struct State {
     meta: Meta,
-    /// Position and when it was seen, while running, to detect seeks.
     clock: Option<(Duration, Instant, bool)>,
 }
 

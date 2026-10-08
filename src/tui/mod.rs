@@ -1,10 +1,3 @@
-//! The TUI client. Owns view state only: what is selected, what was searched,
-//! the theme, the art, the spectrum. Player state arrives as `Arc<Snapshot>`
-//! and changes only through `Command`s.
-//!
-//! One thread (main), one inbox. Draw is a function of `&Ui` that returns what
-//! it measured (`FrameOut`) instead of writing through `Cell`s.
-
 pub mod art;
 pub mod browse;
 pub mod draw;
@@ -66,7 +59,6 @@ impl LayoutKind {
     }
 }
 
-/// What owns the keyboard. Search input and help swallow keys before the keymap.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Mode {
     Normal,
@@ -90,9 +82,7 @@ pub struct Ui {
     pub art: art::Art,
     pub spectrum: spectrum::Spectrum,
     pub toasts: Toasts,
-    /// Measurements from the last draw: list viewport height.
     pub last_frame: draw::FrameOut,
-    /// Repaint every cell next frame: the art box was cleared or covered.
     pub force_art: bool,
     pub quit: bool,
     pub spin: usize,
@@ -102,13 +92,8 @@ pub struct Ui {
 pub enum Msg {
     Term(crossterm::event::Event),
     Player(Out),
-    Search {
-        tab: browse::Tab,
-        ticket: SearchId,
-        result: Result<Vec<crate::domain::Playable>, String>,
-    },
+    Search { tab: browse::Tab, ticket: SearchId, result: Result<Vec<crate::domain::Playable>, String> },
     Art(art::Loaded),
-    /// Something changed under ~/.local/state/omarchy/current/ (debounced).
     OmarchyChanged,
 }
 
@@ -159,7 +144,6 @@ fn now_art(s: &Snapshot) -> Option<&Url> {
     }
 }
 
-/// Audio is flowing and not paused.
 pub fn audible(s: &Snapshot) -> bool {
     match &s.now {
         Some(Now::Track { stage: TrackView::Playing { clock, .. }, .. }) => clock.running,
@@ -169,8 +153,6 @@ pub fn audible(s: &Snapshot) -> bool {
 }
 
 impl Ui {
-    /// Something on screen moves on its own: a fade, the spectrum, a toast, a
-    /// spinner, or a pending key prefix.
     pub fn animating(&self) -> bool {
         let spinning = match &self.snap.now {
             Some(Now::Track { stage, .. }) => !matches!(stage, TrackView::Playing { .. }),
@@ -218,8 +200,6 @@ impl Ui {
     }
 }
 
-/// The terminal in raw mode on the alternate screen. Restores both on drop and
-/// on panic.
 pub struct Term {
     terminal: Terminal<CrosstermBackend<Stdout>>,
     picker: Picker,
@@ -254,7 +234,6 @@ impl Drop for Term {
     }
 }
 
-/// Owns the terminal until the user quits; stops the player before returning.
 pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHandle, http: Http) -> std::io::Result<()> {
     let (tx, rx) = channel::<Msg>();
     let input_tx = tx.clone();

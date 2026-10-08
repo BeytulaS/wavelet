@@ -1,5 +1,3 @@
-//! Where colors come from, and the cross-fade between them.
-
 use std::path::PathBuf;
 use std::sync::mpsc::{Sender, channel};
 use std::time::Duration;
@@ -16,7 +14,6 @@ pub enum ThemeMode {
     Album,
     Omarchy,
     OmarchyAlbum,
-    /// Index into the built-in `THEMES`.
     Builtin(usize),
 }
 
@@ -54,7 +51,6 @@ pub struct Look {
     pub mode: ThemeMode,
     omarchy: Option<Theme>,
     album: Option<Theme>,
-    /// The theme drawn when no fade runs. A finished fade settles here.
     settled: Theme,
     fade: Option<ThemeFade>,
 }
@@ -77,9 +73,6 @@ impl Look {
         self.fade.is_some()
     }
 
-    /// omarchy+album keeps the Omarchy backgrounds and text and takes the
-    /// accents from the album. A missing source falls back to Omarchy, then
-    /// tokyonight.
     fn target(&self) -> Theme {
         let om = self.omarchy.unwrap_or(TOKYONIGHT);
         match &self.mode {
@@ -137,7 +130,6 @@ fn omarchy_dir() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join(".local/state/omarchy/current"))
 }
 
-/// `colors.toml` mapped to tokens per the spec's table.
 pub fn load_omarchy() -> Option<Theme> {
     let raw = std::fs::read_to_string(omarchy_dir()?.join("theme/colors.toml")).ok()?;
     let t: toml::Table = toml::from_str(&raw).ok()?;
@@ -169,9 +161,7 @@ pub fn load_omarchy() -> Option<Theme> {
 }
 
 /// Watches the *parent* of `theme/`, non-recursively: omarchy-theme-set swaps
-/// the `theme` directory, which would kill a watch on it. Events are debounced
-/// by 100 ms into one `Msg::OmarchyChanged`. The watcher lives as long as the
-/// returned value.
+/// the `theme` directory, which would kill a watch on it.
 pub fn watch_omarchy(tx: Sender<Msg>) -> Option<notify::RecommendedWatcher> {
     let dir = omarchy_dir()?;
     let (raw_tx, raw_rx) = channel::<()>();

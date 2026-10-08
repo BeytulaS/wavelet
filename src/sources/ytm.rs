@@ -1,6 +1,4 @@
 //! InnerTube (music.youtube.com/youtubei/v1), anonymous WEB_REMIX client.
-//! Parsers walk the response for renderer objects instead of fixed paths,
-//! which survived layout shuffles in the prototype.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -12,7 +10,6 @@ use crate::domain::{ArtistRef, Track, VideoId};
 use crate::sources::Http;
 
 const BASE: &str = "https://music.youtube.com/youtubei/v1";
-/// The "songs" filter for `search`.
 const SONGS: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
 
 fn post(http: &Http, endpoint: &str, mut body: Value) -> Result<Value, String> {
@@ -31,7 +28,6 @@ pub fn search(http: &Http, query: &str) -> Result<Vec<Track>, String> {
     post(http, "search", json!({"query": query, "params": SONGS})).map(|v| parse_search(&v))
 }
 
-/// The seed itself comes back first; the queue dedupes it.
 pub fn radio(http: &Http, seed: &VideoId) -> Result<Vec<Track>, String> {
     let body = json!({"videoId": seed.as_str(), "playlistId": format!("RDAMVM{}", seed.as_str()), "isAudioOnly": true});
     post(http, "next", body).map(|v| parse_next(&v))
@@ -61,7 +57,6 @@ fn text(v: &Value) -> String {
     runs(v).iter().filter_map(|r| r["text"].as_str()).collect()
 }
 
-/// A byline's runs split at " • " into segments, e.g. [artists] [album] [7:10].
 fn segments(v: &Value) -> Vec<&[Value]> {
     runs(v).split(|r| r["text"].as_str() == Some(" • ")).collect()
 }
@@ -70,7 +65,6 @@ fn browse_id(run: &Value) -> Option<&str> {
     run["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str()
 }
 
-/// The first segment, minus joiners like " & " and ", ".
 fn artists(segs: &[&[Value]]) -> Vec<ArtistRef> {
     let Some(first) = segs.first() else { return vec![] };
     first
@@ -115,8 +109,6 @@ fn big_thumb(url: &str) -> String {
     url.to_string()
 }
 
-/// Pure. Every `musicResponsiveListItemRenderer` with a parseable video id, in
-/// order, deduped by id.
 pub fn parse_search(root: &Value) -> Vec<Track> {
     let mut rows = Vec::new();
     collect(root, "musicResponsiveListItemRenderer", &mut rows);
@@ -149,7 +141,6 @@ pub fn parse_search(root: &Value) -> Vec<Track> {
         .collect()
 }
 
-/// Pure. Every `playlistPanelVideoRenderer` with a parseable video id, in order.
 pub fn parse_next(root: &Value) -> Vec<Track> {
     let mut rows = Vec::new();
     collect(root, "playlistPanelVideoRenderer", &mut rows);
