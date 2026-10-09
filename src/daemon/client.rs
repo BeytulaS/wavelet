@@ -91,7 +91,7 @@ pub fn connect_or_start(autostart: bool) -> Result<(Remote, Updates), Error> {
             if !autostart || &build == BuildId::current() {
                 return Ok((remote, updates));
             }
-            eprintln!("wavelet: restarting the daemon, which runs an older build");
+            eprintln!("wavelet: restarting the daemon, which runs a different build");
             remote.send(Command::Shutdown);
             if !updates.wait_closed(Duration::from_secs(10)) {
                 return Err(Error::Failed("the old wavelet daemon did not stop".into()));
