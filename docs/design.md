@@ -182,7 +182,7 @@ Answers to the open questions, chosen as defaults:
 - Removing the current entry skips to its follower, then removes it.
 - Radio refill seeds from the current track, as in the prototype, which gave varied results over 52 skips.
 - When a YouTube search returns, the core pre-resolves the top three results (`Command::Warm`), within the in-flight cap. This is the only way to reach the 2 s cold-start target.
-- `q` stops playback and exits, until the daemon exists.
+- `q` closes the TUI and playback continues in the daemon (docs/daemon.md). `Q` stops both.
 
 ## Tradeoffs accepted
 

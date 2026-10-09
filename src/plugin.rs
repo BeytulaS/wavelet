@@ -2,6 +2,8 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::daemon::client::exe;
 
@@ -27,9 +29,27 @@ pub fn install() -> Result<(), String> {
         std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     shell(&["rescanPlugins"])?;
-    shell(&["putBarWidget", ID, PLACEMENT])?;
+    place()?;
     println!("installed the bar widget in {}", dir.display());
     Ok(())
+}
+
+/// The shell scans plugins in the background after a rescan and answers
+/// "not ready" for an id it has not reached yet, so placement is retried.
+fn place() -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let out = Command::new("omarchy-shell")
+            .args(["shell", "putBarWidget", ID, PLACEMENT])
+            .output()
+            .map_err(|e| format!("omarchy-shell: {e}"))?;
+        let reply = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        match reply.as_str() {
+            "ok" => return Ok(()),
+            "not ready" if Instant::now() < deadline => thread::sleep(Duration::from_millis(250)),
+            _ => return Err(format!("the bar did not add the widget: {reply}")),
+        }
+    }
 }
 
 fn shell(args: &[&str]) -> Result<(), String> {
