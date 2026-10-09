@@ -9,7 +9,17 @@ use wavelet::player::{self, PlayerOpts};
 use wavelet::{mpris, sources, tui};
 
 fn main() -> ExitCode {
-    match run() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = match args.first().map(String::as_str) {
+        None => run(),
+        Some("daemon") if args.len() == 1 => wavelet::daemon::run(),
+        Some("ctl") => return wavelet::ctl::run(&args[1..]),
+        _ => {
+            eprintln!("usage: wavelet [daemon | ctl <command>]");
+            return ExitCode::from(2);
+        }
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("wavelet: {e}");

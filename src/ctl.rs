@@ -1,7 +1,12 @@
 //! `wavelet ctl`: one command per run, for the bar widget, keybinds, and scripts.
 
+use std::process::ExitCode;
+use std::time::Duration;
+
+use crate::daemon::client::{self, connect_or_start};
+use crate::daemon::status::{OFF_JSON, project};
 use crate::domain::{Playable, StationId, Volume};
-use crate::player::api::{Command, Snapshot, VolumeTo};
+use crate::player::api::{Command, Out, Snapshot, VolumeTo};
 use crate::player::queue::EntryId;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -63,6 +68,56 @@ fn parse_volume(v: &str) -> Option<VolumeTo> {
     } else {
         v.parse::<u16>().ok().map(|n| VolumeTo::At(Volume::new(n.into())))
     }
+}
+
+pub fn run(args: &[String]) -> ExitCode {
+    if let [h] = args
+        && ["help", "-h", "--help"].contains(&h.as_str())
+    {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
+    let ctl = match parse(args) {
+        Ok(c) => c,
+        Err(Usage(why)) => {
+            eprintln!("wavelet ctl: {why}\n{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match execute(&ctl) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("wavelet ctl: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn execute(ctl: &Ctl) -> Result<(), String> {
+    let (remote, mut updates) = match connect_or_start(!matches!(ctl, Ctl::Status | Ctl::Quit)) {
+        Ok(conn) => conn,
+        Err(client::Error::NotRunning) => {
+            if *ctl == Ctl::Status {
+                println!("{OFF_JSON}");
+            }
+            return Ok(());
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    let Some(Out::Snapshot(snap)) = updates.next() else { return Err("the daemon closed the connection".into()) };
+    if *ctl == Ctl::Status {
+        println!("{}", serde_json::to_string(&project(&snap)).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    for cmd in plan(ctl, &snap)? {
+        remote.send(cmd);
+    }
+    // Returning only after the daemon closed the connection means status.json
+    // already says "off" and the socket is gone.
+    if *ctl == Ctl::Quit && !updates.wait_closed(Duration::from_secs(10)) {
+        return Err("the daemon did not stop".into());
+    }
+    Ok(())
 }
 
 /// The commands to send, decided against the daemon's current snapshot.
