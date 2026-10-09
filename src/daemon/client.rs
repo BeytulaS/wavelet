@@ -152,7 +152,8 @@ fn spawn_daemon(log: &Path) -> Result<Child, Error> {
     }
     let out = File::options().create(true).append(true).open(log).map_err(fail)?;
     let mut cmd = std::process::Command::new(exe().map_err(fail)?);
-    cmd.arg("daemon").stdin(Stdio::null()).stdout(out.try_clone().map_err(fail)?).stderr(out);
+    // The daemon outlives the caller, so it must not pin the caller's directory.
+    cmd.arg("daemon").current_dir("/").stdin(Stdio::null()).stdout(out.try_clone().map_err(fail)?).stderr(out);
     // SAFETY: setsid is async-signal-safe and touches no Rust state. A new
     // session keeps the daemon alive when the terminal that started it closes.
     unsafe {
