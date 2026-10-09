@@ -53,8 +53,12 @@ A bad value in either file shows a warning and falls back to the default for
 that key only. On first start, wavelet imports favorite stations from Radio
 Atlas (`~/.local/share/radio-atlas/`) once.
 
-Set `WAVELET_PROTOCOL=halfblocks` to draw album art with text cells. tmux needs
-it, because a detached session does not answer the terminal's graphics query.
+Album art uses the terminal's image protocol: sixel in foot, kitty in kitty and
+ghostty. Inside herdr it falls back to text cells, because herdr shows images
+only when its own terminal speaks kitty. Set `images = "kitty"` in
+`config.toml` if herdr runs in kitty or ghostty. The `WAVELET_PROTOCOL`
+environment variable overrides the config. Detached tmux sessions need
+`WAVELET_PROTOCOL=halfblocks`, because they do not answer the graphics query.
 
 ## Development
 

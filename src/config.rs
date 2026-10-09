@@ -1,9 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use ratatui_image::picker::ProtocolType;
+
 use crate::domain::Volume;
 use crate::tui::LayoutKind;
 use crate::tui::input::{Action, KeySeq};
 use crate::tui::look::ThemeMode;
+use crate::tui::paint::cover::parse_protocol;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -12,6 +15,8 @@ pub struct Config {
     pub audio_device: Option<String>,
     pub volume: Volume,
     pub spectrum: bool,
+    /// `None` detects the terminal's image protocol.
+    pub images: Option<ProtocolType>,
     pub keys: Vec<(KeySeq, Action)>,
 }
 
@@ -23,6 +28,7 @@ impl Default for Config {
             audio_device: None,
             volume: Volume::new(70),
             spectrum: true,
+            images: None,
             keys: vec![],
         }
     }
@@ -64,6 +70,11 @@ const DEFAULT_CONFIG: &str = r#"# wavelet settings. Uncomment a line to change i
 
 # Spectrum analyzer (needs pw-record). `v` toggles.
 # spectrum = true
+
+# Album art: "auto", "kitty", "sixel", "iterm2", or "halfblocks" (text cells).
+# Inside herdr, auto uses halfblocks because herdr shows images only when its
+# own terminal speaks kitty; set "kitty" if yours is kitty or ghostty.
+# images = "auto"
 "#;
 
 const DEFAULT_KEYMAP: &str = r#"# wavelet key overrides. Keys are space-separated sequences ("g q", "C-d",
@@ -154,6 +165,14 @@ pub fn parse_config(text: &str, file: &Path, issues: &mut Vec<Issue>) -> Config 
                 Some(b) => cfg.spectrum = b,
                 None => bad("spectrum must be true or false".into()),
             },
+            "images" => match value.as_str().map(|v| (v, parse_protocol(v))) {
+                Some(("auto", _)) => cfg.images = None,
+                Some((_, Some(p))) => cfg.images = Some(p),
+                _ => bad(format!(
+                    "images must be \"auto\", \"kitty\", \"sixel\", \"iterm2\", or \"halfblocks\", not {}",
+                    show(value)
+                )),
+            },
             other => bad(format!("unknown key '{other}'")),
         }
     }
@@ -196,6 +215,17 @@ mod tests {
         let text: Vec<String> = issues.iter().map(|i| i.to_string()).collect();
         assert!(text.iter().any(|t| t.starts_with("config.toml:2: volume must be")), "{text:?}");
         assert!(text.iter().any(|t| t == "config.toml:4: unknown key 'shuffle'"), "{text:?}");
+    }
+
+    #[test]
+    fn images_accepts_auto_or_a_protocol_and_rejects_the_rest() {
+        let parse = |text: &str| {
+            let mut issues = vec![];
+            (parse_config(text, Path::new("c"), &mut issues).images, issues.len())
+        };
+        assert_eq!(parse("images = \"kitty\""), (Some(ProtocolType::Kitty), 0));
+        assert_eq!(parse("images = \"auto\""), (None, 0));
+        assert_eq!(parse("images = \"png\""), (None, 1));
     }
 
     #[test]

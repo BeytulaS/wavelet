@@ -17,7 +17,7 @@ use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui_image::picker::Picker;
+use ratatui_image::picker::{Picker, ProtocolType};
 use url::Url;
 
 use crate::config::Config;
@@ -208,7 +208,7 @@ pub struct Term {
 impl Term {
     /// Must run before any other thread starts: the image picker may rewrite
     /// environment variables while it queries the terminal (see `Cover::make_picker`).
-    pub fn enter() -> std::io::Result<Term> {
+    pub fn enter(images: Option<ProtocolType>) -> std::io::Result<Term> {
         enable_raw_mode()?;
         execute!(std::io::stdout(), EnterAlternateScreen)?;
         let prev = std::panic::take_hook();
@@ -216,7 +216,7 @@ impl Term {
             restore();
             prev(info);
         }));
-        let picker = Cover::make_picker(None);
+        let picker = Cover::make_picker(images);
         let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
         terminal.clear()?;
         Ok(Term { terminal, picker })

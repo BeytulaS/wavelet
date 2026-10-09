@@ -38,7 +38,7 @@ impl Cover {
     ///
     /// Must be called after raw mode is enabled so the query can round-trip, and
     /// before any thread is spawned — see [`untmuxed_sixel_picker`].
-    pub fn make_picker(preferred: Option<&str>) -> Picker {
+    pub fn make_picker(preferred: Option<ProtocolType>) -> Picker {
         // A detached tmux session never answers the graphics query, so allow skipping it.
         if std::env::var("WAVELET_PROTOCOL").is_ok_and(|p| p == "halfblocks") {
             return Picker::halfblocks();
@@ -47,10 +47,7 @@ impl Cover {
 
         // An explicit choice beats every heuristic below — that is the whole
         // point of the escape hatch.
-        let forced = std::env::var("WAVELET_PROTOCOL")
-            .ok()
-            .or_else(|| preferred.map(String::from))
-            .and_then(|want| parse_protocol(&want));
+        let forced = std::env::var("WAVELET_PROTOCOL").ok().and_then(|want| parse_protocol(&want)).or(preferred);
 
         // The cover has to survive a window switch, and sixel is the only
         // protocol tmux stores in its own pane buffer and repaints itself.
@@ -73,7 +70,12 @@ impl Cover {
             return picker;
         }
 
-        if std::env::var("TERM_PROGRAM").is_ok_and(|t| t.contains("WarpTerminal")) {
+        if std::env::var_os("HERDR_ENV").is_some() {
+            // herdr answers the kitty query itself but forwards images only when
+            // the terminal it runs in speaks kitty, and nothing in the pane says
+            // which terminal that is. Text cells draw everywhere.
+            picker.set_protocol_type(ProtocolType::Halfblocks);
+        } else if std::env::var("TERM_PROGRAM").is_ok_and(|t| t.contains("WarpTerminal")) {
             // Warp answers the kitty query but does not place unicode
             // placeholders, which is how `ratatui-image` draws kitty — the cells
             // come out empty and the cover is a see-through hole. WezTerm has
@@ -189,7 +191,7 @@ impl Cover {
 
 /// The requested protocol, or `None` for anything unrecognised — a typo must
 /// fall back to detection rather than to a protocol the terminal can't draw.
-fn parse_protocol(want: &str) -> Option<ProtocolType> {
+pub fn parse_protocol(want: &str) -> Option<ProtocolType> {
     match want.to_ascii_lowercase().as_str() {
         "kitty" => Some(ProtocolType::Kitty),
         "iterm2" => Some(ProtocolType::Iterm2),

@@ -37,7 +37,7 @@ fn run() -> Result<(), String> {
         }
     }
     let restore = Restore { library, session: store.load_session(), initial_volume: cfg.volume };
-    let term = tui::Term::enter().map_err(|e| e.to_string())?;
+    let term = tui::Term::enter(cfg.images).map_err(|e| e.to_string())?;
     let http = sources::http()?;
     let opts = PlayerOpts {
         restore,
