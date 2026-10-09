@@ -20,6 +20,10 @@ impl EntryId {
     pub fn get(self) -> u64 {
         self.0
     }
+    /// For an id that crossed a process boundary as a number (status.json, `wavelet ctl jump`).
+    pub fn from_raw(n: u64) -> EntryId {
+        EntryId(n)
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]

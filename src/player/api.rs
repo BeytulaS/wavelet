@@ -13,7 +13,7 @@ use crate::player::queue::EntryId;
 
 /// Intent, not mechanism. Commands carry items by value or by stable id, never
 /// an index into some list the client happens to be showing.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Command {
     /// Enter on a YouTube result: queue becomes `[track]`, autoplay radio seeded by it.
     PlayTrack(Arc<Track>),
@@ -56,7 +56,7 @@ pub enum VolumeTo {
 }
 
 /// What subscribers receive. A new subscriber gets one `Snapshot` immediately.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Out {
     Snapshot(Arc<Snapshot>),
     Notice(Notice),
