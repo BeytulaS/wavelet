@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "bsmail.wavelet",
+  "name": "wavelet",
+  "version": "0.1.0",
+  "author": "Beytula Smail",
+  "license": "MIT",
+  "description": "Control wavelet, the YouTube Music and internet radio player, from the bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "wavelet",
+    "description": "Now playing, favorite stations, and the queue",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
