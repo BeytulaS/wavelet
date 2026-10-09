@@ -21,9 +21,11 @@ use ratatui_image::picker::{Picker, ProtocolType};
 use url::Url;
 
 use crate::config::Config;
+use crate::daemon::client::{Remote, Updates};
 use crate::domain::SearchId;
+use crate::player::api::Command;
 use crate::player::api::{Notice, Now, StationView, TrackView};
-use crate::player::{Out, PlayerHandle, Snapshot};
+use crate::player::{Out, Snapshot};
 use crate::sources::Http;
 use crate::tui::paint::cover::Cover;
 
@@ -67,7 +69,7 @@ pub enum Mode {
 }
 
 pub struct Ui {
-    pub player: PlayerHandle,
+    pub player: Remote,
     pub http: Http,
     pub tx: Sender<Msg>,
     /// Latest snapshot and when it arrived; clocks extrapolate from `received`.
@@ -84,14 +86,24 @@ pub struct Ui {
     pub toasts: Toasts,
     pub last_frame: draw::FrameOut,
     pub force_repaint: bool,
-    pub quit: bool,
+    pub exit: Option<Exit>,
     pub spin: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Exit {
+    /// `q`: close the TUI, playback continues in the daemon.
+    Detach,
+    /// `Q`: stop the daemon, then close.
+    StopAll,
+    DaemonGone,
 }
 
 /// Everything the TUI thread can receive.
 pub enum Msg {
     Term(crossterm::event::Event),
     Player(Out),
+    DaemonGone,
     Search { tab: browse::Tab, ticket: SearchId, result: Result<Vec<crate::domain::Playable>, String> },
     Art(art::Loaded),
     OmarchyChanged,
@@ -182,6 +194,9 @@ impl Ui {
                 self.received = now;
             }
             Msg::Player(Out::Notice(n)) => self.toasts.push(n, now),
+            Msg::DaemonGone => {
+                self.exit.get_or_insert(Exit::DaemonGone);
+            }
             Msg::Search { tab, ticket, result } => self.browse.landed(tab, ticket, result, &self.player),
             Msg::Art(loaded) => {
                 if let Some(theme) = self.art.accept(loaded) {
@@ -234,7 +249,14 @@ impl Drop for Term {
     }
 }
 
-pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHandle, http: Http) -> std::io::Result<()> {
+pub fn run(
+    mut term: Term,
+    cfg: Config,
+    notices: Vec<Notice>,
+    player: Remote,
+    updates: Updates,
+    http: Http,
+) -> std::io::Result<()> {
     let (tx, rx) = channel::<Msg>();
     let input_tx = tx.clone();
     std::thread::Builder::new().name("input".into()).spawn(move || {
@@ -245,7 +267,14 @@ pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHand
         }
     })?;
     let player_tx = tx.clone();
-    player.subscribe(Box::new(move |out| player_tx.send(Msg::Player(out.clone())).is_ok()));
+    std::thread::Builder::new().name("daemon".into()).spawn(move || {
+        for out in updates {
+            if player_tx.send(Msg::Player(out)).is_err() {
+                return;
+            }
+        }
+        let _ = player_tx.send(Msg::DaemonGone);
+    })?;
     let _watcher = look::watch_omarchy(tx.clone());
 
     let now = Instant::now();
@@ -266,7 +295,7 @@ pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHand
         toasts: Toasts { items: VecDeque::new() },
         last_frame: draw::FrameOut::default(),
         force_repaint: false,
-        quit: false,
+        exit: None,
         spin: 0,
     };
     for n in notices {
@@ -278,7 +307,7 @@ pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHand
 
     let mut last_draw = Instant::now() - IDLE_REDRAW;
     let mut dirty = true;
-    while !ui.quit {
+    while ui.exit.is_none() {
         let wait = if dirty {
             MIN_FRAME
         } else if ui.animating() {
@@ -297,7 +326,7 @@ pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHand
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
-        if ui.quit || !should_draw(dirty, ui.animating(), last_draw.elapsed()) {
+        if ui.exit.is_some() || !should_draw(dirty, ui.animating(), last_draw.elapsed()) {
             continue;
         }
         let now = Instant::now();
@@ -313,6 +342,10 @@ pub fn run(mut term: Term, cfg: Config, notices: Vec<Notice>, player: PlayerHand
         dirty = false;
     }
     ui.spectrum.stop();
-    ui.player.shutdown(Duration::from_secs(3));
+    match ui.exit {
+        Some(Exit::StopAll) => ui.player.send(Command::Shutdown),
+        Some(Exit::DaemonGone) => return Err(std::io::Error::other("the wavelet daemon stopped")),
+        Some(Exit::Detach) | None => {}
+    }
     Ok(())
 }

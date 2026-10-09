@@ -12,7 +12,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crate::domain::Playable;
 use crate::player::api::{Command, Level, Notice, SeekTo, VolumeTo};
 use crate::tui::browse::{Selected, Tab};
-use crate::tui::{Mode, Ui};
+use crate::tui::{Exit, Mode, Ui};
 
 macro_rules! actions {
     ($($variant:ident $name:literal $help:literal,)*) => {
@@ -59,7 +59,8 @@ actions! {
     CycleTheme "cycle-theme" "cycle theme",
     ToggleSpectrum "toggle-spectrum" "spectrum on / off",
     Help "help" "this help",
-    Quit "quit" "stop and quit",
+    Quit "quit" "close (playback continues)",
+    QuitAll "quit-all" "stop playback and close",
     Unbind "unbind" "remove a default binding",
 }
 
@@ -178,6 +179,7 @@ const DEFAULTS: &[(&str, Action)] = &[
     ("v", Action::ToggleSpectrum),
     ("?", Action::Help),
     ("q", Action::Quit),
+    ("Q", Action::QuitAll),
     ("C-c", Action::Quit),
 ];
 
@@ -371,7 +373,8 @@ pub fn dispatch(ui: &mut Ui, action: Action, now: Instant) {
         }
         Action::ToggleSpectrum => ui.spectrum.enabled = !ui.spectrum.enabled,
         Action::Help => ui.mode = Mode::Help,
-        Action::Quit => ui.quit = true,
+        Action::Quit => ui.exit = Some(Exit::Detach),
+        Action::QuitAll => ui.exit = Some(Exit::StopAll),
         Action::Unbind => {}
     }
 }

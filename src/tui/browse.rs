@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
+use crate::daemon::client::Remote;
 use crate::domain::{Playable, SearchId, Station, Tickets};
-use crate::player::PlayerHandle;
 use crate::player::api::{Command, Snapshot};
 use crate::player::queue::EntryId;
 use crate::sources::{Http, radio_browser, ytm};
@@ -212,7 +212,7 @@ impl Browse {
         });
     }
 
-    pub fn landed(&mut self, tab: Tab, ticket: SearchId, result: Result<Vec<Playable>, String>, player: &PlayerHandle) {
+    pub fn landed(&mut self, tab: Tab, ticket: SearchId, result: Result<Vec<Playable>, String>, player: &Remote) {
         let Some(list) = self.list_mut(tab) else { return };
         if list.state != Fetch::Loading(ticket) {
             return;

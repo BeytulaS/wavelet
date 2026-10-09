@@ -588,7 +588,8 @@ fn render_footer(f: &mut Frame, theme: Theme, area: Rect) {
         ("w", " layout   "),
         ("t", " theme   "),
         ("?", " help   "),
-        ("q", " quit"),
+        ("q", " close   "),
+        ("Q", " quit"),
     ];
     let line = Line::from(hints.into_iter().flat_map(|(k, l)| [key(k), lbl(l)]).collect::<Vec<_>>());
     f.render_widget(Paragraph::new(line).alignment(Alignment::Center), area);

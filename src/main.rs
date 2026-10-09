@@ -1,21 +1,26 @@
 use std::process::ExitCode;
 
-use wavelet::config;
+use wavelet::daemon::client::connect_or_start;
 use wavelet::player::api::{Level, Notice};
-use wavelet::player::core::Restore;
-use wavelet::player::shell::runtime_dir;
-use wavelet::player::store::{Store, import_radio_atlas};
-use wavelet::player::{self, PlayerOpts};
-use wavelet::{mpris, sources, tui};
+use wavelet::{config, ctl, daemon, sources, tui};
+
+const USAGE: &str = "\
+usage: wavelet                  open the player (starts the daemon if needed)
+       wavelet ctl <command>    control the daemon; `wavelet ctl help` lists commands
+       wavelet daemon           run the playback daemon in the foreground";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
-        None => run(),
-        Some("daemon") if args.len() == 1 => wavelet::daemon::run(),
-        Some("ctl") => return wavelet::ctl::run(&args[1..]),
-        _ => {
-            eprintln!("usage: wavelet [daemon | ctl <command>]");
+        None => tui(),
+        Some("daemon") if args.len() == 1 => daemon::run(),
+        Some("ctl") => return ctl::run(&args[1..]),
+        Some("-h" | "--help" | "help") => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Some(_) => {
+            eprintln!("{USAGE}");
             return ExitCode::from(2);
         }
     };
@@ -28,35 +33,11 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<(), String> {
+fn tui() -> Result<(), String> {
     let (cfg, issues) = config::load_or_init();
-    let mut notices: Vec<Notice> = issues.iter().map(|i| Notice { level: Level::Warn, text: i.to_string() }).collect();
-    let store = Store::at_xdg().ok_or("no home directory for XDG paths")?;
-    let (mut library, warning) = store.load_library();
-    notices.extend(warning.map(|text| Notice { level: Level::Warn, text }));
-    if !library.radio_atlas_checked {
-        if let Some(dir) = dirs::data_dir().map(|d| d.join("radio-atlas"))
-            && let Ok(stations) = import_radio_atlas(&dir)
-        {
-            let n = library.merge_stations(stations);
-            notices.push(Notice { level: Level::Info, text: format!("imported {n} stations from Radio Atlas") });
-        }
-        library.radio_atlas_checked = true;
-        if let Err(e) = store.save_library(&library) {
-            notices.push(Notice { level: Level::Warn, text: format!("could not save favorites: {e}") });
-        }
-    }
-    let restore = Restore { library, session: store.load_session(), initial_volume: cfg.volume };
+    let notices = issues.iter().map(|i| Notice { level: Level::Warn, text: i.to_string() }).collect();
+    let (remote, updates) = connect_or_start(true).map_err(|e| e.to_string())?;
     let term = tui::Term::enter(cfg.images).map_err(|e| e.to_string())?;
     let http = sources::http()?;
-    let opts = PlayerOpts {
-        restore,
-        audio_device: cfg.audio_device.clone(),
-        runtime_dir: runtime_dir(),
-        store,
-        http: http.clone(),
-    };
-    let player = player::spawn(opts).map_err(|e| e.to_string())?;
-    mpris::spawn(player.clone());
-    tui::run(term, cfg, notices, player, http).map_err(|e| e.to_string())
+    tui::run(term, cfg, notices, remote, updates, http).map_err(|e| e.to_string())
 }
