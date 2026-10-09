@@ -6,5 +6,6 @@ pub mod daemon;
 pub mod domain;
 pub mod mpris;
 pub mod player;
+pub mod plugin;
 pub mod sources;
 pub mod tui;

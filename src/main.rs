@@ -2,12 +2,13 @@ use std::process::ExitCode;
 
 use wavelet::daemon::client::connect_or_start;
 use wavelet::player::api::{Level, Notice};
-use wavelet::{config, ctl, daemon, sources, tui};
+use wavelet::{config, ctl, daemon, plugin, sources, tui};
 
 const USAGE: &str = "\
 usage: wavelet                  open the player (starts the daemon if needed)
        wavelet ctl <command>    control the daemon; `wavelet ctl help` lists commands
-       wavelet daemon           run the playback daemon in the foreground";
+       wavelet daemon           run the playback daemon in the foreground
+       wavelet plugin install   install the Omarchy bar widget";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -15,6 +16,7 @@ fn main() -> ExitCode {
         None => tui(),
         Some("daemon") if args.len() == 1 => daemon::run(),
         Some("ctl") => return ctl::run(&args[1..]),
+        Some("plugin") if args[1..] == ["install"] => plugin::install(),
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
