@@ -1,4 +1,4 @@
-//! Color math for gradients and pills.
+//! Color math for the theme cross-fade.
 //!
 //! Faithful port of noodle's `gradient.ts`, adapted to ratatui's `Color::Rgb`.
 //! Everything here is pure math — no allocation in the hot path beyond the
@@ -60,42 +60,5 @@ pub fn lerp_color(a: Rgb, b: Rgb, t: f32) -> Rgb {
         lerp_u8(a.g, b.g, t),
         lerp_u8(a.b, b.b, t),
     )
-}
-
-/// Sample a multi-stop gradient at position `t` in `[0, 1]`.
-///
-/// Mirrors noodle's `interpolateGradient`: stops are spread evenly across the
-/// range and we lerp within the active segment.
-pub fn interpolate(stops: &[Rgb], t: f32) -> Rgb {
-    match stops {
-        [] => Rgb::new(0, 0, 0),
-        [only] => *only,
-        _ => {
-            if t <= 0.0 {
-                return stops[0];
-            }
-            if t >= 1.0 {
-                return stops[stops.len() - 1];
-            }
-            let segment = t * (stops.len() - 1) as f32;
-            let i = segment.floor() as usize;
-            let local_t = segment - i as f32;
-            lerp_color(stops[i], stops[i + 1], local_t)
-        }
-    }
-}
-
-/// Sample `n` evenly-spaced colors across a gradient. Handy for coloring `n`
-/// visualizer bars or an `n`-cell progress bar in one shot.
-pub fn sample(stops: &[Rgb], n: usize) -> Vec<Rgb> {
-    if n == 0 {
-        return Vec::new();
-    }
-    if n == 1 {
-        return vec![interpolate(stops, 0.0)];
-    }
-    (0..n)
-        .map(|i| interpolate(stops, i as f32 / (n - 1) as f32))
-        .collect()
 }
 

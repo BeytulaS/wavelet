@@ -114,7 +114,7 @@ audible:
 
 ## Credits
 
-The theme system, color extraction, gradients, cross-fade, cover handling,
+The theme system, color extraction, cross-fade, cover handling,
 and spectrum analyzer are adapted from [Myx](https://github.com/HaseebKhalid1507/Myx)
 by Haseeb Khalid (MIT). The FFT band analysis comes from
 [spotify-player](https://github.com/aome510/spotify-player) by Thang Pham (MIT)

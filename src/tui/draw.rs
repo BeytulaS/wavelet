@@ -11,8 +11,7 @@ use crate::domain::{ItemKey, Playable, Station};
 use crate::player::api::{ClockView, Level, Now, RadioStatus, StationView, TrackView};
 use crate::tui::browse::{Fetch, Row, Tab};
 use crate::tui::input::{Action, PREFIX_POPUP_AFTER};
-use crate::tui::paint::components::{gradient_line, gradient_pill, gradient_progress, left_bar_block, pill};
-use crate::tui::paint::gradient;
+use crate::tui::paint::components::{left_bar_block, pill, progress};
 use crate::tui::paint::theme::Theme;
 use crate::tui::paint::visualizer::NUM_BANDS;
 use crate::tui::{LayoutKind, Mode, Ui};
@@ -129,13 +128,7 @@ fn is_playing_row(ui: &Ui, row: &Row) -> bool {
 }
 
 fn wordmark<'a>(theme: Theme) -> Vec<Span<'a>> {
-    gradient_line("ＷＡＶＥＬＥＴ", &[theme.primary, theme.accent])
-        .into_iter()
-        .map(|mut sp| {
-            sp.style = sp.style.add_modifier(Modifier::BOLD);
-            sp
-        })
-        .collect()
+    vec![Span::styled("ＷＡＶＥＬＥＴ", Style::default().fg(theme.primary.into()).add_modifier(Modifier::BOLD))]
 }
 
 fn art_size(ui: &Ui, max_w: u16, max_h: u16) -> (u16, u16) {
@@ -205,12 +198,10 @@ fn render_spectrum(f: &mut Frame, ui: &Ui, theme: Theme, vrect: Rect) {
         }
     }
     const LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    let stops = [theme.info, theme.primary, theme.accent];
+    let color: ratatui::style::Color = theme.primary.into();
     let lines: Vec<Line> = (0..h)
         .map(|row| {
             let from_bottom = (h - 1 - row) as f32;
-            let vfrac = if h > 1 { from_bottom / (h - 1) as f32 } else { 0.0 };
-            let color: ratatui::style::Color = gradient::interpolate(&stops, vfrac).into();
             Line::from(
                 cols.iter()
                     .map(|&v| {
@@ -447,7 +438,7 @@ fn render_header(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect) {
         (Tab::Queue, "gq Queue"),
     ] {
         if ui.browse.tab == tab {
-            spans.extend(gradient_pill(label, &[theme.primary, theme.accent], theme.background));
+            spans.extend(pill(label, theme.primary, theme.background));
         } else {
             spans.push(Span::styled(format!(" {label} "), theme.muted()));
         }
@@ -541,16 +532,7 @@ fn render_strip(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, now: Instant) 
         spans.push(Span::styled(format!("  on air {}", fmt_dur(listened)), theme.muted()));
         let rest = (rows[1].width as usize).saturating_sub(20);
         spans.push(Span::raw(" "));
-        let line = gradient_progress(
-            rest,
-            rest,
-            &[theme.border_dimmest, theme.primary, theme.border_dimmest],
-            theme.border_dimmest,
-        );
-        spans.extend(line.into_iter().map(|mut s| {
-            s.content = "─".into();
-            s
-        }));
+        spans.push(Span::styled("─".repeat(rest), Style::default().fg(theme.border_dimmest.into())));
         f.render_widget(Paragraph::new(Line::from(spans)), rows[1]);
     } else {
         let (pos, dur) = match &ui.snap.now {
@@ -567,7 +549,7 @@ fn render_strip(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, now: Instant) 
         let bar_w = (rows[1].width as usize).saturating_sub(l.chars().count() + r.chars().count());
         let filled = if dur.is_zero() { 0 } else { (pos.as_secs_f64() / dur.as_secs_f64() * bar_w as f64) as usize };
         let mut spans = vec![Span::styled(l, theme.muted())];
-        spans.extend(gradient_progress(bar_w, filled.min(bar_w), &[theme.primary, theme.accent], theme.border_dimmest));
+        spans.extend(progress(bar_w, filled, theme.primary, theme.border_dimmest));
         spans.push(Span::styled(r, theme.muted()));
         f.render_widget(Paragraph::new(Line::from(spans)), rows[1]);
     }
@@ -760,20 +742,14 @@ fn layout_stage(f: &mut Frame, ui: &Ui, theme: Theme, body: Rect, out: &mut Fram
                 Now::Track { track, .. } => ("YOUTUBE MUSIC", track.duration.map(fmt_dur).unwrap_or_default(), false),
                 Now::Station { station, .. } => ("INTERNET RADIO", station_meta(station), true),
             };
-            let mut l1 = gradient_pill(src, &[theme.primary, theme.accent], theme.background);
+            let mut l1 = pill(src, theme.primary, theme.background);
             if live {
                 l1.push(Span::raw(" "));
                 l1.extend(pill("LIVE", theme.error, theme.background));
             }
             l1.push(Span::styled(format!("   {extra}"), theme.muted()));
             let title = nl[0].spans.first().map(|s| s.content.to_string()).unwrap_or_default();
-            let big: Vec<Span> = gradient_line(&title, &[theme.text, theme.primary])
-                .into_iter()
-                .map(|mut s| {
-                    s.style = s.style.add_modifier(Modifier::BOLD);
-                    s
-                })
-                .collect();
+            let big = Span::styled(title, Style::default().fg(theme.text.into()).add_modifier(Modifier::BOLD));
             vec![Line::from(l1), Line::raw(""), Line::from(big), Line::raw(""), nl[1].clone(), nl[2].clone()]
         }
         None => nl,
