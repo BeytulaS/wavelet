@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::daemon::client::{self, connect_or_start};
 use crate::daemon::status::{OFF_JSON, project};
 use crate::domain::{Playable, StationId, Volume};
-use crate::player::api::{Command, Out, Snapshot, VolumeTo};
+use crate::player::api::{Command, Now, Out, Snapshot, VolumeTo};
 use crate::player::queue::EntryId;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -146,8 +146,8 @@ pub fn plan(ctl: &Ctl, snap: &Snapshot) -> Result<Vec<Command>, String> {
         }
         Ctl::Play => vec![Command::SetPaused(false)],
         Ctl::Pause => vec![Command::SetPaused(true)],
-        Ctl::Next => vec![Command::Next],
-        Ctl::Prev => vec![Command::Prev],
+        Ctl::Next => vec![wrap_station(snap, true).unwrap_or(Command::Next)],
+        Ctl::Prev => vec![wrap_station(snap, false).unwrap_or(Command::Prev)],
         Ctl::Volume(v) => vec![Command::Volume(*v)],
         Ctl::Station(id) => {
             let stations = favorites();
@@ -159,6 +159,18 @@ pub fn plan(ctl: &Ctl, snap: &Snapshot) -> Result<Vec<Command>, String> {
         Ctl::Jump(e) => vec![Command::Jump(*e)],
         Ctl::Quit => vec![Command::Shutdown],
     })
+}
+
+/// The bar treats favorite stations as a dial, so next and prev wrap past
+/// either end. Track queues keep the player's own end-of-queue rule.
+fn wrap_station(snap: &Snapshot, forward: bool) -> Option<Command> {
+    if !matches!(snap.now, Some(Now::Station { .. })) || snap.queue.len() < 2 {
+        return None;
+    }
+    let c = snap.cursor?;
+    let (at_edge, to) =
+        if forward { (c + 1 == snap.queue.len(), snap.queue.first()?) } else { (c == 0, snap.queue.last()?) };
+    at_edge.then_some(Command::Jump(to.id))
 }
 
 #[cfg(test)]
@@ -241,6 +253,34 @@ mod tests {
         );
         let err = plan(&Ctl::Station(station(9).id.clone()), &snap).expect_err("not a favorite");
         assert!(err.contains("not a favorite"), "{err}");
+    }
+
+    #[test]
+    fn next_and_prev_wrap_around_a_station_list_but_not_a_track_queue() {
+        let row = |n: u64, item: Playable| QueueRow { id: EntryId::from_raw(n), item, from_radio: false };
+        let mut snap = Snapshot::empty();
+        snap.queue = vec![row(1, Playable::Station(station(1))), row(2, Playable::Station(station(2)))];
+        snap.cursor = Some(1);
+        snap.now = Some(Now::Station {
+            entry: EntryId::from_raw(2),
+            station: station(2),
+            stage: crate::player::api::StationView::Connecting,
+        });
+        assert_eq!(plan(&Ctl::Next, &snap), Ok(vec![Command::Jump(EntryId::from_raw(1))]));
+        assert_eq!(plan(&Ctl::Prev, &snap), Ok(vec![Command::Prev]), "not at the start");
+        snap.cursor = Some(0);
+        assert_eq!(plan(&Ctl::Prev, &snap), Ok(vec![Command::Jump(EntryId::from_raw(2))]));
+        assert_eq!(plan(&Ctl::Next, &snap), Ok(vec![Command::Next]), "not at the end");
+
+        let mut tracks = Snapshot::empty();
+        tracks.queue = vec![row(1, Playable::Track(track(&vid('a')))), row(2, Playable::Track(track(&vid('b'))))];
+        tracks.cursor = Some(1);
+        tracks.now = Some(Now::Track {
+            entry: EntryId::from_raw(2),
+            track: track(&vid('b')),
+            stage: crate::player::api::TrackView::Loading,
+        });
+        assert_eq!(plan(&Ctl::Next, &tracks), Ok(vec![Command::Next]));
     }
 
     #[test]
