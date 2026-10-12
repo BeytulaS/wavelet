@@ -9,7 +9,7 @@ wavelet            TUI client. Starts the daemon if no socket answers.
 wavelet daemon     Owns mpv, the player thread, MPRIS, the session, and status.json.
 wavelet ctl ...    One command per run. Used by the bar widget, keybinds, and scripts.
 wavelet plugin install
-                   Writes the bar widget into ~/.config/omarchy/plugins/bsmail.wavelet/.
+                   Writes the bar widget into ~/.config/omarchy/plugins/io.github.beytulas.wavelet/.
 ```
 
 All runtime files live in `runtime_dir()` (`$XDG_RUNTIME_DIR/wavelet`).
@@ -101,7 +101,7 @@ Every command except `status` and `quit` starts the daemon when none answers. Ex
 
 ## Bar widget
 
-`plugin/bsmail.wavelet/` holds `manifest.json` and `BarWidget.qml`. `wavelet plugin install` embeds both with `include_str!`, replaces `@WAVELET_BIN@` in the QML with `current_exe()`, writes them to `~/.config/omarchy/plugins/bsmail.wavelet/`, then runs `omarchy-shell -q shell rescanPlugins` and `omarchy-shell -q shell putBarWidget bsmail.wavelet '{"section":"right","after":"akshar.radio-atlas"}'`. The full path matters because the bar's PATH has no `~/.cargo/bin`.
+`plugin/io.github.beytulas.wavelet/` holds `manifest.json` and `BarWidget.qml`. `wavelet plugin install` embeds both with `include_str!`, replaces `@WAVELET_BIN@` in the QML with `current_exe()`, writes them to `~/.config/omarchy/plugins/io.github.beytulas.wavelet/`, then runs `omarchy-shell -q shell rescanPlugins` and `omarchy-shell -q shell putBarWidget io.github.beytulas.wavelet '{"section":"right","after":"akshar.radio-atlas"}'`. The full path matters because the bar's PATH has no `~/.cargo/bin`.
 
 | Input on the icon | Result |
 |---|---|

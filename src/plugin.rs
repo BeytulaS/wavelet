@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 
 use crate::daemon::client::exe;
 
-const ID: &str = "bsmail.wavelet";
-const MANIFEST: &str = include_str!("../plugin/bsmail.wavelet/manifest.json");
-const WIDGET: &str = include_str!("../plugin/bsmail.wavelet/BarWidget.qml");
+const ID: &str = "io.github.beytulas.wavelet";
+const MANIFEST: &str = include_str!("../plugin/io.github.beytulas.wavelet/manifest.json");
+const WIDGET: &str = include_str!("../plugin/io.github.beytulas.wavelet/BarWidget.qml");
 const PLACEHOLDER: &str = "@WAVELET_BIN@";
 const PLACEMENT: &str = r#"{"section":"right","after":"akshar.radio-atlas"}"#;
 

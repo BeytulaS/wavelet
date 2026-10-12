@@ -8,7 +8,7 @@ import qs.Ui
 BarWidget {
   id: root
 
-  moduleName: "bsmail.wavelet"
+  moduleName: "io.github.beytulas.wavelet"
   readonly property string bin: "@WAVELET_BIN@"
   readonly property string statusPath: Quickshell.env("XDG_RUNTIME_DIR") + "/wavelet/status.json"
 

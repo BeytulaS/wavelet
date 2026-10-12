@@ -1,10 +1,12 @@
 {
   "schemaVersion": 1,
-  "id": "bsmail.wavelet",
+  "id": "io.github.beytulas.wavelet",
   "name": "wavelet",
   "version": "0.1.0",
   "author": "Beytula Smail",
   "license": "MIT",
+  "homepage": "https://github.com/BeytulaS/wavelet",
+  "repository": "https://github.com/BeytulaS/wavelet",
   "description": "Control wavelet, the YouTube Music and internet radio player, from the bar.",
   "kinds": [
     "bar-widget"
