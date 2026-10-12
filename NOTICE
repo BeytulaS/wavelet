@@ -11,3 +11,8 @@ Myx  (https://github.com/HaseebKhalid1507/Myx)
 spotify-player  (https://github.com/aome510/spotify-player)
     Copyright (c) 2021 Thang Pham. MIT License.
     src/tui/paint/visualizer.rs (FFT band analysis) comes from spotify-player by way of Myx.
+
+noodle  (https://github.com/wilfredinni/noodle)
+    Myx's visual design language and its built-in theme palettes (tokyonight,
+    catppuccin, rosepine, gruvbox) come from noodle; wavelet inherits both
+    through Myx. No noodle code is used directly.

@@ -3,6 +3,8 @@ name = "wavelet"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Terminal music player for YouTube Music and internet radio"
+repository = "https://github.com/BeytulaS/wavelet"
 
 [dependencies]
 # From the prototype, same versions.

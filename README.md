@@ -114,10 +114,32 @@ audible:
 
 ## Credits
 
-The theme system, color extraction, cross-fade, cover handling,
-and spectrum analyzer are adapted from [Myx](https://github.com/HaseebKhalid1507/Myx)
-by Haseeb Khalid (MIT). The FFT band analysis comes from
-[spotify-player](https://github.com/aome510/spotify-player) by Thang Pham (MIT)
-by way of Myx. See `NOTICE`. Streams are resolved by
-[yt-dlp](https://github.com/yt-dlp/yt-dlp) and played by [mpv](https://mpv.io).
-Station data comes from [radio-browser.info](https://www.radio-browser.info).
+wavelet stands on other people's work:
+
+- [Myx](https://github.com/HaseebKhalid1507/Myx) by Haseeb Khalid (MIT). The
+  theme system, album color extraction, theme cross-fade, cover handling,
+  gradients, and most of the TUI render code are adapted from Myx. Its license
+  is in `MYX-LICENSE`.
+- [spotify-player](https://github.com/aome510/spotify-player) by Thang Pham
+  (MIT). The FFT band analysis behind the spectrum comes from spotify-player
+  by way of Myx.
+- [noodle](https://github.com/wilfredinni/noodle). Myx's visual language and
+  the built-in theme palettes come from noodle, so wavelet's look does too.
+- [ratatui](https://ratatui.rs) draws the interface.
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) resolves streams and
+  [mpv](https://mpv.io) plays them.
+- [radio-browser.info](https://www.radio-browser.info) provides the station
+  directory.
+
+`NOTICE` lists which files come from where.
+
+## Disclaimer
+
+wavelet calls YouTube Music's internal API without signing in and plays
+streams through yt-dlp. This is against YouTube's terms of service, as it is
+for yt-dlp and similar clients. wavelet is a personal project and is not
+affiliated with YouTube or Google.
+
+## License
+
+MIT. See `LICENSE`.
