@@ -215,9 +215,9 @@ Where v1 differs from the sketch above, and why.
 - **`Fetch::InFlight { ticket, seed }`.** The refill slot remembers its seed, so `Dry { at }` names the track the empty answer was for, even if the user skipped while the refill ran.
 - **Resolves.** Plays ignore the cap and negative entries. A play for an id already in flight waits for that resolve instead of starting a second one. `RESOLVE_CAP` is 5 and `FAILED_BACKOFF` is 60 s.
 - **Commands.** `Prewarm` is `Warm`, as the synthesis named it. `SetPaused(bool)` was added for MPRIS Play and Pause. `EngineCmd::Seek` is absolute, because the core computes relative seeks against its own clock and re-anchors it at once.
-- **Snapshot favorites** are one `items: Vec<Playable>` (tracks, then stations), which is what the Favorites tab lists.
+- **Snapshot favorites** are `tracks` and `stations`, listed in separate TUI tabs.
 - **Queue view.** `gq` toggles a fourth list in `Browse` (`Tab::Queue`) that every layout shows in its list panel. Enter jumps and `dd` removes there. Removing the current entry while stopped does not start its follower.
-- **Keys.** A bound digit fires its binding (`1` `2` `3` switch sources); unbound digits build a count (`5j`).
+- **Keys.** A bound digit fires its binding (`1` `2` `3` `4` switch sources); unbound digits build a count (`5j`).
 - **Art repaint.** v1 keeps the prototype's single force-repaint flag instead of the `ArtRepaint` wipe-then-draw enum. It is what the user approved on screen.
 - **Children die with wavelet.** mpv and pw-record get `PR_SET_PDEATHSIG` (`libc`), so a crash cannot leave an idle mpv behind.
 - **Boundary cleaning.** ICY titles lose control characters before they reach the terminal.

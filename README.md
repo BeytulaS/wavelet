@@ -29,7 +29,7 @@ Run `wavelet`. The first run starts the daemon.
 | Keys | Action |
 |---|---|
 | `j` `k` `gg` `G` `Ctrl-d` `Ctrl-u` | Move (counts work: `5j`) |
-| `Tab` `1` `2` `3` | YouTube, Radio, Favorites |
+| `Tab` `1` `2` `3` `4` | YouTube, Radio, favorite songs, favorite stations |
 | `gq` | Queue view (Enter jumps, `dd` removes) |
 | `/` | Search (Enter runs, Esc cancels) |
 | `Enter` | Play the selected row |
@@ -55,7 +55,7 @@ paused.
 
 | Command | Effect |
 |---|---|
-| `status` | Print the bar status as JSON. Prints `{"state":"off"}` when no daemon runs. |
+| `status` | Print the bar status as JSON. With no daemon, prints `"state": "off"` and the favorite stations saved on disk. |
 | `toggle` | Play or pause. With nothing queued, play the first favorite station. |
 | `play`, `pause`, `next`, `prev` | As named |
 | `volume N`, `volume +N`, `volume -N` | Set or change the volume (0 to 130) |

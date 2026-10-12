@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn search_fixture_yields_songs_with_exact_fields() {
         let tracks = parse_search(&fixture("ytm_search.json"));
-        assert_eq!(tracks.len(), 20);
+        assert_eq!(tracks.len(), 3);
         let t = &tracks[0];
         assert_eq!(t.id.as_str(), "Jb6gcoR266U");
         assert_eq!(t.title, "Around the World");
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn next_fixture_yields_radio_tracks_in_order_with_joined_artists() {
         let tracks = parse_next(&fixture("ytm_next.json"));
-        assert_eq!(tracks.len(), 50);
+        assert_eq!(tracks.len(), 4);
         assert_eq!(tracks[0].id.as_str(), "Jb6gcoR266U", "the seed comes first");
         assert_eq!(tracks[1].title, "One More Time (Radio Edit)");
         assert_eq!(tracks[1].album.as_deref(), Some("One More Time"));

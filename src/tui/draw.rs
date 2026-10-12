@@ -295,7 +295,8 @@ fn empty_hint(ui: &Ui) -> &'static str {
             let loading = ui.browse.list(ui.browse.tab).is_some_and(|l| matches!(l.state, Fetch::Loading(_)));
             if loading { "searching…" } else { "Press / to search" }
         }
-        Tab::Favorites => "Press f on a song or station to keep it here",
+        Tab::FavoriteSongs => "Press f on a song to keep it here",
+        Tab::FavoriteStations => "Press f on a station to keep it here",
         Tab::Queue => "The queue is empty",
     }
 }
@@ -347,7 +348,7 @@ fn render_list_compact(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &m
         if !fav.is_empty() {
             spans.push(Span::styled(fav, Style::default().fg(theme.error.into())));
         }
-        let sub = truncate(&row_subtitle(row.item), sub_w);
+        let sub = truncate(&row_subtitle(&row.item), sub_w);
         spans.push(Span::styled(format!(" {sub:>sub_w$}"), theme.muted()));
         f.render_widget(Paragraph::new(Line::from(spans)).block(left_bar_block(&theme, sel, bg)), rect);
     }
@@ -395,10 +396,10 @@ fn render_list_table(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &mut
         let rect = Rect { y: top + (i - off) as u16, height: 1, ..inner };
         let sel = i == selected;
         let bg = if sel { theme.element_bg() } else { theme.panel_bg() };
-        let fields: Vec<String> = match row.item {
+        let fields: Vec<String> = match &row.item {
             Playable::Track(t) => vec![
                 t.title.clone(),
-                artists(row.item),
+                artists(&row.item),
                 t.album.clone().unwrap_or_default(),
                 t.duration.map(fmt_dur).unwrap_or_default(),
             ],
@@ -434,7 +435,8 @@ fn render_header(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect) {
     for (tab, label) in [
         (Tab::YouTube, "1 YouTube"),
         (Tab::Radio, "2 Radio"),
-        (Tab::Favorites, "3 Favorites"),
+        (Tab::FavoriteSongs, "3 ♥ Songs"),
+        (Tab::FavoriteStations, "4 ♥ Stations"),
         (Tab::Queue, "gq Queue"),
     ] {
         if ui.browse.tab == tab {

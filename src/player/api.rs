@@ -141,13 +141,17 @@ pub enum RadioStatus {
 
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct Favorites {
-    /// Tracks first, then stations, each in the order they were favorited.
-    pub items: Vec<Playable>,
+    /// Each in the order they were favorited.
+    pub tracks: Vec<Arc<Track>>,
+    pub stations: Vec<Arc<Station>>,
 }
 
 impl Favorites {
     pub fn contains(&self, key: &ItemKey) -> bool {
-        self.items.iter().any(|i| &i.key() == key)
+        match key {
+            ItemKey::Video(id) => self.tracks.iter().any(|t| &t.id == id),
+            ItemKey::Station(id) => self.stations.iter().any(|s| &s.id == id),
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// Private XDG directories, so the test never meets a real wavelet daemon,
@@ -12,10 +13,12 @@ struct Env {
 
 impl Env {
     fn new() -> Env {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let id = format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
         let base = ["/run/user", &unsafe { libc::getuid() }.to_string()].iter().collect::<PathBuf>();
         let base = if base.is_dir() { base } else { std::env::temp_dir() };
-        let runtime = base.join(format!("wl-{}", std::process::id()));
-        let home = std::env::temp_dir().join(format!("wavelet-daemon-test-{}", std::process::id()));
+        let runtime = base.join(format!("wl-{id}"));
+        let home = std::env::temp_dir().join(format!("wavelet-daemon-test-{id}"));
         for d in [&runtime, &home] {
             let _ = std::fs::remove_dir_all(d);
             std::fs::create_dir_all(d).expect("temp dir");
@@ -107,9 +110,40 @@ fn one_daemon_runs_answers_ctl_and_quits_cleanly() {
     assert!(st.success(), "the daemon exits 0, got {st}");
 
     let out = env.ctl(&["status"]);
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"state":"off"}"#);
+    let printed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("ctl status prints JSON");
+    assert_eq!(printed["state"], "off", "{printed}");
     assert!(!sock.exists(), "ctl status never starts a daemon");
     assert_eq!(env.ctl(&["volume", "loud"]).status.code(), Some(2), "usage errors exit 2");
+}
+
+#[test]
+fn ctl_status_with_no_daemon_offers_the_saved_favorite_stations() {
+    let env = Env::new();
+    let library = env.home.join("data/wavelet/library.json");
+    std::fs::create_dir_all(library.parent().expect("parent")).expect("data dir");
+    let station = serde_json::json!({
+        "id": "8b700f14-99e7-4f77-84eb-3ff9d0ad69a0",
+        "name": "Radio The Voice",
+        "stream": "https://example.com/stream",
+        "homepage": null,
+        "favicon": null,
+        "country_code": null,
+        "tags": [],
+        "codec": null,
+        "bitrate_kbps": null,
+    });
+    let file = serde_json::json!({ "version": 1, "tracks": [], "stations": [station], "radio_atlas_checked": true });
+    std::fs::write(&library, file.to_string()).expect("library.json");
+
+    let out = env.ctl(&["status"]);
+    assert!(out.status.success(), "{out:?}");
+    let printed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("ctl status prints JSON");
+    assert_eq!(printed["state"], "off", "{printed}");
+    assert_eq!(
+        printed["stations"],
+        serde_json::json!([{ "id": "8b700f14-99e7-4f77-84eb-3ff9d0ad69a0", "name": "Radio The Voice" }])
+    );
+    assert!(!env.dir().join("wavelet.sock").exists(), "ctl status never starts a daemon");
 }
 
 struct KillOnDrop<'a>(&'a mut Child);

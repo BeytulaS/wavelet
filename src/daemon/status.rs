@@ -53,9 +53,6 @@ pub struct UpNextRow {
     pub subtitle: String,
 }
 
-/// What `wavelet ctl status` prints when no daemon answers.
-pub const OFF_JSON: &str = r#"{"state":"off"}"#;
-
 pub fn project(s: &Snapshot) -> BarStatus {
     let (state, item, icy) = match &s.now {
         Some(Now::Track { track, stage, .. }) => {
@@ -92,12 +89,9 @@ pub fn project(s: &Snapshot) -> BarStatus {
         volume: s.volume.get(),
         stations: s
             .favorites
-            .items
+            .stations
             .iter()
-            .filter_map(|i| match i {
-                Playable::Station(st) => Some(StationRow { id: st.id.clone(), name: st.name.clone() }),
-                Playable::Track(_) => None,
-            })
+            .map(|st| StationRow { id: st.id.clone(), name: st.name.clone() })
             .collect(),
         up_next: s
             .queue
@@ -193,13 +187,7 @@ mod tests {
             cursor,
             volume: Volume::new(60),
             radio: RadioStatus::Off,
-            favorites: Favorites {
-                items: vec![
-                    Playable::Track(track(&vid('z'))),
-                    Playable::Station(station(2)),
-                    Playable::Station(station(1)),
-                ],
-            },
+            favorites: Favorites { tracks: vec![track(&vid('z'))], stations: vec![station(2), station(1)] },
         }
     }
 
@@ -327,8 +315,6 @@ mod tests {
         assert_eq!(v["up_next"][0]["entry"], 2);
         let off = serde_json::to_value(project(&Snapshot::empty()).stopped()).expect("json");
         assert_eq!((off["state"].as_str(), off["kind"].is_null()), (Some("off"), true));
-        let printed: serde_json::Value = serde_json::from_str(OFF_JSON).expect("json");
-        assert_eq!(printed["state"], "off");
     }
 
     #[test]

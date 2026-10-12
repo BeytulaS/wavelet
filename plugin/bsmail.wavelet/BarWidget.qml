@@ -166,7 +166,11 @@ BarWidget {
 
   function togglePopup() {
     button.hideOwnTooltip()
-    if (!root.popupOpen) root.tab = root.kind === "track" ? "upnext" : "stations"
+    if (!root.popupOpen) {
+      root.tab = root.kind === "track" ? "upnext" : "stations"
+      // No daemon has written status.json since boot, so ask for the saved stations.
+      if (!root.statusLoaded && !offlineProcess.running) offlineProcess.running = true
+    }
     root.popupOpen = !root.popupOpen
   }
 
@@ -207,6 +211,15 @@ BarWidget {
     repeat: true
     running: !root.statusLoaded
     onTriggered: root.rearmStatus()
+  }
+
+  Process {
+    id: offlineProcess
+    command: [root.bin, "ctl", "status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (!root.statusLoaded) root.applyStatus(text)
+    }
   }
 
   Process {

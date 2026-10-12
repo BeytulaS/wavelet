@@ -138,7 +138,7 @@ mod tests {
             cursor: Some(0),
             volume: Volume::new(60),
             radio: RadioStatus::Following { seed: VideoId::parse(&vid('a')).expect("id"), fetching: true, dry: false },
-            favorites: Favorites { items: vec![Playable::Station(s)] },
+            favorites: Favorites { tracks: vec![], stations: vec![s] },
         };
         let on_air = Now::Station {
             entry: EntryId::from_raw(5),

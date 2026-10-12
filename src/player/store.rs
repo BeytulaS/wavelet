@@ -37,6 +37,12 @@ struct SessionFile {
     position_ms: Option<u64>,
 }
 
+impl From<LibraryFile> for Library {
+    fn from(f: LibraryFile) -> Library {
+        Library { tracks: f.tracks, stations: f.stations, radio_atlas_checked: f.radio_atlas_checked }
+    }
+}
+
 /// Radio Atlas `state.json` favorites. Wire type, never leaves this module.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,15 +82,18 @@ impl Store {
     pub fn load_library(&self) -> (Library, Option<String>) {
         let Ok(text) = std::fs::read_to_string(&self.library) else { return (Library::default(), None) };
         match serde_json::from_str::<LibraryFile>(&text) {
-            Ok(f) => {
-                (Library { tracks: f.tracks, stations: f.stations, radio_atlas_checked: f.radio_atlas_checked }, None)
-            }
+            Ok(f) => (f.into(), None),
             Err(e) => {
                 let bad = self.library.with_extension("json.bad");
                 let _ = std::fs::rename(&self.library, &bad);
                 (Library::default(), Some(format!("library.json unreadable ({e}); moved to {}", bad.display())))
             }
         }
+    }
+
+    /// For readers outside the daemon: leaves a corrupt file where it is.
+    pub fn peek_library(&self) -> Option<Library> {
+        serde_json::from_str::<LibraryFile>(&std::fs::read_to_string(&self.library).ok()?).ok().map(Library::from)
     }
 
     pub fn load_session(&self) -> Option<Session> {

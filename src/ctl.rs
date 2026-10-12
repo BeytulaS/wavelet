@@ -4,10 +4,11 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use crate::daemon::client::{self, connect_or_start};
-use crate::daemon::status::{OFF_JSON, project};
-use crate::domain::{Playable, StationId, Volume};
-use crate::player::api::{Command, Now, Out, Snapshot, VolumeTo};
+use crate::daemon::status::{BarStatus, project};
+use crate::domain::{StationId, Volume};
+use crate::player::api::{Command, Favorites, Now, Out, Snapshot, VolumeTo};
 use crate::player::queue::EntryId;
+use crate::player::store::Store;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Ctl {
@@ -28,7 +29,7 @@ pub struct Usage(pub String);
 
 pub const USAGE: &str = "\
 usage: wavelet ctl <command>
-  status              print the bar status as JSON
+  status              print the bar status as JSON, saved favorites included when no daemon runs
   toggle              play or pause; starts the first favorite station when nothing is queued
   play | pause
   next | prev
@@ -98,7 +99,7 @@ fn execute(ctl: &Ctl) -> Result<(), String> {
         Ok(conn) => conn,
         Err(client::Error::NotRunning) => {
             if *ctl == Ctl::Status {
-                println!("{OFF_JSON}");
+                println!("{}", serde_json::to_string(&offline_status()).map_err(|e| e.to_string())?);
             }
             return Ok(());
         }
@@ -120,41 +121,42 @@ fn execute(ctl: &Ctl) -> Result<(), String> {
     Ok(())
 }
 
+/// With no daemon, the bar still gets the favorite stations from disk, so it
+/// can offer one to start.
+fn offline_status() -> BarStatus {
+    let mut snap = Snapshot::empty();
+    if let Some(store) = Store::at_xdg() {
+        if let Some(lib) = store.peek_library() {
+            snap.favorites = Favorites { tracks: lib.tracks, stations: lib.stations };
+        }
+        if let Some(s) = store.load_session() {
+            snap.volume = s.volume;
+        }
+    }
+    project(&snap).stopped()
+}
+
 /// The commands to send, decided against the daemon's current snapshot.
 pub fn plan(ctl: &Ctl, snap: &Snapshot) -> Result<Vec<Command>, String> {
-    let favorites = || -> Vec<_> {
-        snap.favorites
-            .items
-            .iter()
-            .filter_map(|i| match i {
-                Playable::Station(s) => Some(s.clone()),
-                Playable::Track(_) => None,
-            })
-            .collect()
-    };
+    let stations = &snap.favorites.stations;
     Ok(match ctl {
         Ctl::Status => vec![],
-        Ctl::Toggle => {
-            let stations = favorites();
-            match stations.first() {
-                Some(first) if snap.now.is_none() && snap.queue.is_empty() => {
-                    let start = first.id.clone();
-                    vec![Command::PlayStations { stations, start }]
-                }
-                _ => vec![Command::TogglePause],
+        Ctl::Toggle => match stations.first() {
+            Some(first) if snap.now.is_none() && snap.queue.is_empty() => {
+                vec![Command::PlayStations { stations: stations.clone(), start: first.id.clone() }]
             }
-        }
+            _ => vec![Command::TogglePause],
+        },
         Ctl::Play => vec![Command::SetPaused(false)],
         Ctl::Pause => vec![Command::SetPaused(true)],
         Ctl::Next => vec![wrap_station(snap, true).unwrap_or(Command::Next)],
         Ctl::Prev => vec![wrap_station(snap, false).unwrap_or(Command::Prev)],
         Ctl::Volume(v) => vec![Command::Volume(*v)],
         Ctl::Station(id) => {
-            let stations = favorites();
             if !stations.iter().any(|s| &s.id == id) {
                 return Err(format!("station {} is not a favorite", id.as_str()));
             }
-            vec![Command::PlayStations { stations, start: id.clone() }]
+            vec![Command::PlayStations { stations: stations.clone(), start: id.clone() }]
         }
         Ctl::Jump(e) => vec![Command::Jump(*e)],
         Ctl::Quit => vec![Command::Shutdown],
@@ -176,7 +178,8 @@ fn wrap_station(snap: &Snapshot, forward: bool) -> Option<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::api::{Favorites, QueueRow};
+    use crate::domain::Playable;
+    use crate::player::api::QueueRow;
     use crate::player::queue::tests::{station, track, vid};
 
     fn args(s: &str) -> Vec<String> {
@@ -184,7 +187,14 @@ mod tests {
     }
 
     fn with_favorites(items: Vec<Playable>) -> Snapshot {
-        Snapshot { favorites: Favorites { items }, ..Snapshot::empty() }
+        let mut favorites = Favorites::default();
+        for item in items {
+            match item {
+                Playable::Track(t) => favorites.tracks.push(t),
+                Playable::Station(s) => favorites.stations.push(s),
+            }
+        }
+        Snapshot { favorites, ..Snapshot::empty() }
     }
 
     #[test]

@@ -12,18 +12,20 @@ use crate::tui::Msg;
 pub enum Tab {
     YouTube,
     Radio,
-    Favorites,
+    FavoriteSongs,
+    FavoriteStations,
     Queue,
 }
 
 impl Tab {
-    pub const SOURCES: [Tab; 3] = [Tab::YouTube, Tab::Radio, Tab::Favorites];
+    pub const SOURCES: [Tab; 4] = [Tab::YouTube, Tab::Radio, Tab::FavoriteSongs, Tab::FavoriteStations];
 
     pub fn label(self) -> &'static str {
         match self {
             Tab::YouTube => "YouTube",
             Tab::Radio => "Radio",
-            Tab::Favorites => "Favorites",
+            Tab::FavoriteSongs => "Favorite songs",
+            Tab::FavoriteStations => "Favorite stations",
             Tab::Queue => "Queue",
         }
     }
@@ -54,13 +56,14 @@ pub struct Browse {
     source: Tab,
     pub youtube: ResultList,
     pub radio: ResultList,
-    favorites: Cursor,
+    favorite_songs: Cursor,
+    favorite_stations: Cursor,
     queue: Cursor,
     tickets: Tickets,
 }
 
-pub struct Row<'a> {
-    pub item: &'a Playable,
+pub struct Row {
+    pub item: Playable,
     pub entry: Option<EntryId>,
     pub from_radio: bool,
 }
@@ -83,7 +86,8 @@ impl Default for Browse {
             source: Tab::YouTube,
             youtube: ResultList::new(),
             radio: ResultList::new(),
-            favorites: Cursor::default(),
+            favorite_songs: Cursor::default(),
+            favorite_stations: Cursor::default(),
             queue: Cursor::default(),
             tickets: Tickets::default(),
         }
@@ -91,15 +95,20 @@ impl Default for Browse {
 }
 
 impl Browse {
-    pub fn rows<'a>(&'a self, snap: &'a Snapshot) -> Vec<Row<'a>> {
+    pub fn rows(&self, snap: &Snapshot) -> Vec<Row> {
         let plain = |item| Row { item, entry: None, from_radio: false };
         match self.tab {
-            Tab::YouTube => self.youtube.items.iter().map(plain).collect(),
-            Tab::Radio => self.radio.items.iter().map(plain).collect(),
-            Tab::Favorites => snap.favorites.items.iter().map(plain).collect(),
-            Tab::Queue => {
-                snap.queue.iter().map(|r| Row { item: &r.item, entry: Some(r.id), from_radio: r.from_radio }).collect()
+            Tab::YouTube => self.youtube.items.iter().cloned().map(plain).collect(),
+            Tab::Radio => self.radio.items.iter().cloned().map(plain).collect(),
+            Tab::FavoriteSongs => snap.favorites.tracks.iter().cloned().map(Playable::Track).map(plain).collect(),
+            Tab::FavoriteStations => {
+                snap.favorites.stations.iter().cloned().map(Playable::Station).map(plain).collect()
             }
+            Tab::Queue => snap
+                .queue
+                .iter()
+                .map(|r| Row { item: r.item.clone(), entry: Some(r.id), from_radio: r.from_radio })
+                .collect(),
         }
     }
 
@@ -107,7 +116,7 @@ impl Browse {
         match tab {
             Tab::YouTube => Some(&self.youtube),
             Tab::Radio => Some(&self.radio),
-            Tab::Favorites | Tab::Queue => None,
+            Tab::FavoriteSongs | Tab::FavoriteStations | Tab::Queue => None,
         }
     }
 
@@ -115,7 +124,7 @@ impl Browse {
         match tab {
             Tab::YouTube => Some(&mut self.youtube),
             Tab::Radio => Some(&mut self.radio),
-            Tab::Favorites | Tab::Queue => None,
+            Tab::FavoriteSongs | Tab::FavoriteStations | Tab::Queue => None,
         }
     }
 
@@ -123,7 +132,8 @@ impl Browse {
         match self.tab {
             Tab::YouTube => self.youtube.cursor,
             Tab::Radio => self.radio.cursor,
-            Tab::Favorites => self.favorites,
+            Tab::FavoriteSongs => self.favorite_songs,
+            Tab::FavoriteStations => self.favorite_stations,
             Tab::Queue => self.queue,
         }
     }
@@ -132,7 +142,8 @@ impl Browse {
         match self.tab {
             Tab::YouTube => &mut self.youtube.cursor,
             Tab::Radio => &mut self.radio.cursor,
-            Tab::Favorites => &mut self.favorites,
+            Tab::FavoriteSongs => &mut self.favorite_songs,
+            Tab::FavoriteStations => &mut self.favorite_stations,
             Tab::Queue => &mut self.queue,
         }
     }
@@ -142,11 +153,12 @@ impl Browse {
     }
 
     pub fn selected(&self, snap: &Snapshot) -> Option<Selected> {
-        let rows = self.rows(snap);
-        let row = rows.get(self.cursor().selected.min(rows.len().saturating_sub(1)))?;
+        let mut rows = self.rows(snap);
+        let last = rows.len().checked_sub(1)?;
+        let row = rows.swap_remove(self.cursor().selected.min(last));
         Some(match row.entry {
-            Some(id) => Selected::Entry(id, row.item.clone()),
-            None => Selected::Item(row.item.clone()),
+            Some(id) => Selected::Entry(id, row.item),
+            None => Selected::Item(row.item),
         })
     }
 
@@ -154,7 +166,7 @@ impl Browse {
         self.rows(snap)
             .into_iter()
             .filter_map(|r| match r.item {
-                Playable::Station(s) => Some(s.clone()),
+                Playable::Station(s) => Some(s),
                 Playable::Track(_) => None,
             })
             .collect()
@@ -241,4 +253,27 @@ impl Browse {
 
 fn stations(v: Vec<Station>) -> Vec<Playable> {
     v.into_iter().map(|s| Playable::Station(Arc::new(s))).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::player::api::Favorites;
+    use crate::player::queue::tests::{station, track, vid};
+
+    #[test]
+    fn favorite_songs_and_stations_are_separate_tabs() {
+        let snap = Snapshot {
+            favorites: Favorites { tracks: vec![track(&vid('a'))], stations: vec![station(1), station(2)] },
+            ..Snapshot::empty()
+        };
+        let mut b = Browse::default();
+        b.set_tab(Tab::FavoriteSongs, &snap);
+        let songs: Vec<Playable> = b.rows(&snap).into_iter().map(|r| r.item).collect();
+        assert_eq!(songs, vec![Playable::Track(track(&vid('a')))]);
+        b.cycle_tab(&snap);
+        assert_eq!(b.tab, Tab::FavoriteStations);
+        assert_eq!(b.stations(&snap), vec![station(1), station(2)]);
+        assert_eq!(b.rows(&snap).len(), 2, "no songs among the stations");
+    }
 }

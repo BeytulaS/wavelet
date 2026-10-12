@@ -81,7 +81,7 @@ When `now` is `None` but the queue has a cursor (a restored session), `state` is
 
 | Command | Effect |
 |---|---|
-| `status` | Prints the status JSON. Never starts the daemon; prints `{"state":"off"}` when none answers. |
+| `status` | Prints the status JSON. Never starts the daemon. When none answers, prints `"state": "off"` with the favorite stations and volume read from `library.json` and `session.json`. |
 | `toggle` | If nothing is current, the queue is empty, and a favorite station exists, plays the first favorite station. Otherwise `TogglePause`. |
 | `play`, `pause` | `SetPaused(false)`, `SetPaused(true)` |
 | `next`, `prev` | `Next`, `Prev` |
@@ -111,4 +111,4 @@ Every command except `status` and `quit` starts the daemon when none answers. Ex
 | Scroll | `ctl volume +5` or `-5`, coalesced while a call runs |
 | Right click | Popup card |
 
-The popup has the title and subtitle, prev, play or pause, and next buttons, a volume slider, two tabs (Stations, Up next), and an "Open wavelet" button. A station row click runs `ctl station ID`. An up-next row click runs `ctl jump ENTRY`. The widget reads `status.json` with `FileView` and treats a missing file as `"off"`.
+The popup has the title and subtitle, prev, play or pause, and next buttons, a volume slider, two tabs (Stations, Up next), and an "Open wavelet" button. A station row click runs `ctl station ID`. An up-next row click runs `ctl jump ENTRY`. The widget reads `status.json` with `FileView` and treats a missing file as `"off"`. When the file is missing as the popup opens, as after a reboot before any daemon ran, the widget runs `ctl status` to get the favorite stations, so a station row can still start the daemon.
