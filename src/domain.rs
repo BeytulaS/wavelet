@@ -134,6 +134,25 @@ impl Playable {
     }
 }
 
+/// Lyrics for one track, as the lyrics service returned them.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Lyrics {
+    /// Sorted by time. Empty text marks an instrumental gap.
+    Synced(Vec<(Duration, String)>),
+    Plain(Vec<String>),
+    Instrumental,
+}
+
+impl Lyrics {
+    /// Index of the synced line being sung at `pos`; `None` before the first line or when not synced.
+    pub fn line_at(&self, pos: Duration) -> Option<usize> {
+        match self {
+            Lyrics::Synced(lines) => lines.partition_point(|(at, _)| *at <= pos).checked_sub(1),
+            Lyrics::Plain(_) | Lyrics::Instrumental => None,
+        }
+    }
+}
+
 /// mpv volume, clamped to 0..=130 at construction.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Volume(u8);
@@ -235,6 +254,17 @@ mod tests {
         assert_eq!(id.as_str(), "960b6f0b-0601-11e8-ae97-52543be04c81");
         assert!(StationId::parse("960b6f0b-0601-11e8-ae97").is_none());
         assert!(StationId::parse("960b6f0g-0601-11e8-ae97-52543be04c81").is_none());
+    }
+
+    #[test]
+    fn line_at_follows_the_clock_and_is_none_before_the_first_line() {
+        let at = Duration::from_secs;
+        let l = Lyrics::Synced(vec![(at(5), "a".into()), (at(9), "b".into())]);
+        assert_eq!(l.line_at(at(0)), None);
+        assert_eq!(l.line_at(at(5)), Some(0));
+        assert_eq!(l.line_at(at(8)), Some(0));
+        assert_eq!(l.line_at(at(100)), Some(1));
+        assert_eq!(Lyrics::Plain(vec!["a".into()]).line_at(at(7)), None);
     }
 
     #[test]

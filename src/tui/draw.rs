@@ -7,10 +7,11 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
-use crate::domain::{ItemKey, Playable, Station};
+use crate::domain::{ItemKey, Lyrics, Playable, Station};
 use crate::player::api::{ClockView, Level, Now, RadioStatus, StationView, TrackView};
 use crate::tui::browse::{Fetch, Row, Tab};
 use crate::tui::input::{Action, PREFIX_POPUP_AFTER};
+use crate::tui::lyrics::View;
 use crate::tui::paint::components::{left_bar_block, pill, progress};
 use crate::tui::paint::theme::Theme;
 use crate::tui::paint::visualizer::NUM_BANDS;
@@ -571,6 +572,7 @@ fn render_footer(f: &mut Frame, theme: Theme, area: Rect) {
         ("gq", " queue   "),
         ("w", " layout   "),
         ("t", " theme   "),
+        ("l", " lyrics   "),
         ("?", " help   "),
         ("q", " close   "),
         ("Q", " quit"),
@@ -673,10 +675,14 @@ pub fn frame(f: &mut Frame, ui: &Ui, now: Instant) -> FrameOut {
     ])
     .split(area);
     render_header(f, ui, theme, rows[0]);
-    match ui.layout {
-        LayoutKind::Myx => layout_myx(f, ui, theme, rows[2], &mut out),
-        LayoutKind::Stage => layout_stage(f, ui, theme, rows[2], &mut out),
-        LayoutKind::List => layout_list(f, ui, theme, rows[2], &mut out),
+    if ui.lyrics.open {
+        render_lyrics(f, ui, theme, rows[2], now);
+    } else {
+        match ui.layout {
+            LayoutKind::Myx => layout_myx(f, ui, theme, rows[2], &mut out),
+            LayoutKind::Stage => layout_stage(f, ui, theme, rows[2], &mut out),
+            LayoutKind::List => layout_list(f, ui, theme, rows[2], &mut out),
+        }
     }
     if thin_viz {
         let r = rows[3];
@@ -693,6 +699,69 @@ pub fn frame(f: &mut Frame, ui: &Ui, now: Instant) -> FrameOut {
         force_area(f, full);
     }
     out
+}
+
+/// Lyrics replace the whole body. The synced line being sung stays centered; plain lyrics scroll with the song's progress.
+fn render_lyrics(f: &mut Frame, ui: &Ui, theme: Theme, body: Rect, now: Instant) {
+    let (pos, total) = match &ui.snap.now {
+        Some(Now::Track { stage: TrackView::Playing { clock, duration }, track, .. }) => {
+            (clock_now(clock, ui, now), duration.or(track.duration))
+        }
+        _ => (Duration::ZERO, None),
+    };
+    let head = match &ui.snap.now {
+        Some(Now::Track { track, .. }) => {
+            format!("{} · {}", track.title, artists(&Playable::Track(track.clone())))
+        }
+        _ => String::new(),
+    };
+    let width = body.width as usize;
+    let header = Line::from(vec![
+        Span::styled("LYRICS  ", theme.heading()),
+        Span::styled(truncate(&head, width.saturating_sub(8)), theme.muted()),
+    ]);
+    f.render_widget(Paragraph::new(header), Rect { height: 1, ..body });
+    let area = Rect { y: body.y + 2, height: body.height.saturating_sub(2), ..body };
+    let h = area.height as usize;
+    let note = |t: String| vec![Line::from(Span::styled(t, theme.muted()))];
+    let lines: Vec<Line> = match &ui.lyrics.view {
+        View::Idle => match &ui.snap.now {
+            Some(Now::Station { .. }) => note("Radio has no lyrics. Play a song, then press l.".into()),
+            _ => note("Nothing playing".into()),
+        },
+        View::Loading => note(format!("{} Looking for lyrics…", SPINNER[ui.spin % SPINNER.len()])),
+        View::Missing => note("No lyrics found for this song".into()),
+        View::Failed(e) => note(format!("Lyrics lookup failed: {e}. Press l twice to retry.")),
+        View::Found(Lyrics::Instrumental) => note("♪ Instrumental".into()),
+        View::Found(l @ Lyrics::Synced(rows)) => {
+            let cur = l.line_at(pos);
+            let first = cur.unwrap_or(0).saturating_sub(h / 2).min(rows.len().saturating_sub(h));
+            rows.iter()
+                .enumerate()
+                .skip(first)
+                .take(h)
+                .map(|(i, (_, text))| {
+                    let style = if Some(i) == cur {
+                        Style::default().fg(theme.primary.into()).add_modifier(Modifier::BOLD)
+                    } else {
+                        theme.muted()
+                    };
+                    Line::from(Span::styled(truncate(text, width), style))
+                })
+                .collect()
+        }
+        View::Found(Lyrics::Plain(rows)) => {
+            let progress =
+                total.filter(|t| !t.is_zero()).map_or(0.0, |t| (pos.as_secs_f64() / t.as_secs_f64()).min(1.0));
+            let first = (rows.len().saturating_sub(h) as f64 * progress) as usize;
+            rows.iter()
+                .skip(first)
+                .take(h)
+                .map(|t| Line::from(Span::styled(truncate(t, width), Style::default().fg(theme.text.into()))))
+                .collect()
+        }
+    };
+    f.render_widget(Paragraph::new(lines).alignment(Alignment::Center), area);
 }
 
 fn layout_myx(f: &mut Frame, ui: &Ui, theme: Theme, body: Rect, out: &mut FrameOut) {

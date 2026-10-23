@@ -3,6 +3,7 @@ pub mod browse;
 pub mod draw;
 pub mod input;
 pub mod look;
+pub mod lyrics;
 #[rustfmt::skip]
 pub mod paint;
 pub mod spectrum;
@@ -22,7 +23,7 @@ use url::Url;
 
 use crate::config::Config;
 use crate::daemon::client::{Remote, Updates};
-use crate::domain::SearchId;
+use crate::domain::{Lyrics, SearchId, Track, VideoId};
 use crate::player::api::Command;
 use crate::player::api::{Notice, Now, StationView, TrackView};
 use crate::player::{Out, Snapshot};
@@ -82,6 +83,7 @@ pub struct Ui {
     pub keymap: input::Keymap,
     pub look: look::Look,
     pub art: art::Art,
+    pub lyrics: lyrics::Pane,
     pub spectrum: spectrum::Spectrum,
     pub toasts: Toasts,
     pub last_frame: draw::FrameOut,
@@ -106,6 +108,7 @@ pub enum Msg {
     DaemonGone,
     Search { tab: browse::Tab, ticket: SearchId, result: Result<Vec<crate::domain::Playable>, String> },
     Art(art::Loaded),
+    Lyrics { id: VideoId, result: Result<Option<Lyrics>, String> },
     OmarchyChanged,
 }
 
@@ -156,6 +159,13 @@ fn now_art(s: &Snapshot) -> Option<&Url> {
     }
 }
 
+pub fn now_track(s: &Snapshot) -> Option<&Arc<Track>> {
+    match &s.now {
+        Some(Now::Track { track, .. }) => Some(track),
+        _ => None,
+    }
+}
+
 pub fn audible(s: &Snapshot) -> bool {
     match &s.now {
         Some(Now::Track { stage: TrackView::Playing { clock, .. }, .. }) => clock.running,
@@ -179,6 +189,7 @@ impl Ui {
             || self.toasts.any()
             || spinning
             || searching
+            || self.lyrics.animating(audible(&self.snap))
             || self.keys.pending().is_some()
     }
 
@@ -189,6 +200,7 @@ impl Ui {
                 if self.art.want(now_art(&s), &self.tx, &self.http) {
                     self.force_repaint = true;
                 }
+                self.lyrics.sync(now_track(&s), &self.tx, &self.http);
                 self.spectrum.set_wanted(audible(&s));
                 self.snap = s;
                 self.received = now;
@@ -204,6 +216,7 @@ impl Ui {
                     self.force_repaint = true;
                 }
             }
+            Msg::Lyrics { id, result } => self.lyrics.accept(id, result),
             Msg::OmarchyChanged => {
                 self.look.reload_omarchy();
                 self.toasts.push(
@@ -280,6 +293,7 @@ pub fn run(
     let now = Instant::now();
     let mut ui = Ui {
         art: art::Art::new(term.picker.clone()),
+        lyrics: lyrics::Pane::default(),
         player,
         http,
         tx,

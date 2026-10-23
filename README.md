@@ -40,6 +40,7 @@ Run `wavelet`. The first run starts the daemon.
 | `a` | Play the selection next |
 | `f` | Favorite or unfavorite |
 | `w` `t` `v` | Cycle layout, cycle theme, toggle the spectrum |
+| `l` | Show lyrics for the playing song (synced when available, from lrclib.net) |
 | `?` | Show every key |
 | `q` | Close wavelet; playback continues |
 | `Q` | Stop playback and close |

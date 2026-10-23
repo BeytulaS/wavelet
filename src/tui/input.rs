@@ -59,6 +59,7 @@ actions! {
     CycleLayout "cycle-layout" "cycle layout",
     CycleTheme "cycle-theme" "cycle theme",
     ToggleSpectrum "toggle-spectrum" "spectrum on / off",
+    Lyrics "lyrics" "lyrics on / off (songs)",
     Help "help" "this help",
     Quit "quit" "close (playback continues)",
     QuitAll "quit-all" "stop playback and close",
@@ -179,6 +180,7 @@ const DEFAULTS: &[(&str, Action)] = &[
     ("w", Action::CycleLayout),
     ("t", Action::CycleTheme),
     ("v", Action::ToggleSpectrum),
+    ("l", Action::Lyrics),
     ("?", Action::Help),
     ("q", Action::Quit),
     ("Q", Action::QuitAll),
@@ -375,6 +377,11 @@ pub fn dispatch(ui: &mut Ui, action: Action, now: Instant) {
             toast(ui, format!("theme: {}", ui.look.mode.label()), now);
         }
         Action::ToggleSpectrum => ui.spectrum.enabled = !ui.spectrum.enabled,
+        Action::Lyrics => {
+            ui.lyrics.toggle();
+            ui.lyrics.sync(crate::tui::now_track(&ui.snap), &ui.tx, &ui.http);
+            ui.force_repaint = true;
+        }
         Action::Help => ui.mode = Mode::Help,
         Action::Quit => ui.exit = Some(Exit::Detach),
         Action::QuitAll => ui.exit = Some(Exit::StopAll),

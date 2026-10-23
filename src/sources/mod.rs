@@ -2,6 +2,7 @@
 //! from the upstream JSON to `domain` types. Wire shapes never leave a module.
 //! Callers run these on worker threads; nothing here holds state.
 
+pub mod lrclib;
 pub mod radio_browser;
 pub mod ytdlp;
 pub mod ytm;
