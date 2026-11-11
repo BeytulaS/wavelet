@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
 
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, MouseEventKind};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::Terminal;
@@ -90,6 +91,8 @@ pub struct Ui {
     pub force_repaint: bool,
     pub exit: Option<Exit>,
     pub spin: usize,
+    /// Where and when the last mouse button went down, for double-clicks.
+    pub last_click: Option<(ratatui::layout::Position, Instant)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -238,7 +241,7 @@ impl Term {
     /// environment variables while it queries the terminal (see `Cover::make_picker`).
     pub fn enter(images: Option<ProtocolType>) -> std::io::Result<Term> {
         enable_raw_mode()?;
-        execute!(std::io::stdout(), EnterAlternateScreen)?;
+        execute!(std::io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             restore();
@@ -253,7 +256,7 @@ impl Term {
 
 fn restore() {
     let _ = disable_raw_mode();
-    let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+    let _ = execute!(std::io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
 }
 
 impl Drop for Term {
@@ -274,6 +277,10 @@ pub fn run(
     let input_tx = tx.clone();
     std::thread::Builder::new().name("input".into()).spawn(move || {
         while let Ok(ev) = crossterm::event::read() {
+            // Bare pointer motion changes nothing; forwarding it would redraw on every move.
+            if matches!(&ev, crossterm::event::Event::Mouse(m) if matches!(m.kind, MouseEventKind::Moved)) {
+                continue;
+            }
             if input_tx.send(Msg::Term(ev)).is_err() {
                 return;
             }
@@ -311,6 +318,7 @@ pub fn run(
         force_repaint: false,
         exit: None,
         spin: 0,
+        last_click: None,
     };
     for n in notices {
         ui.toasts.push(n, now);

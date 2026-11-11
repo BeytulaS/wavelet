@@ -22,6 +22,62 @@ pub struct FrameOut {
     /// Rows the active list could show; drives half-page motions.
     pub list_rows: usize,
     pub list_offset: usize,
+    /// Clickable regions in paint order; the last one under the pointer wins.
+    pub zones: Vec<Zone>,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Hit {
+    Act(Action),
+    Tab(Tab),
+    /// A row of the active list, by index.
+    Row(usize),
+    /// The list body; takes the scroll wheel.
+    List,
+    /// The progress bar of a track this long.
+    Seek(Duration),
+    Volume,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Zone {
+    pub rect: Rect,
+    pub hit: Hit,
+}
+
+/// One line of spans laid out left to right, remembering which columns are buttons.
+#[derive(Default)]
+struct Run<'a> {
+    spans: Vec<Span<'a>>,
+    width: u16,
+    buttons: Vec<(u16, u16, Hit)>,
+}
+
+impl<'a> Run<'a> {
+    fn text(&mut self, span: Span<'a>) {
+        self.width += span.width() as u16;
+        self.spans.push(span);
+    }
+
+    fn button(&mut self, spans: Vec<Span<'a>>, hit: Hit) {
+        let start = self.width;
+        spans.into_iter().for_each(|s| self.text(s));
+        self.buttons.push((start, self.width - start, hit));
+    }
+
+    fn place(self, f: &mut Frame, area: Rect, align: Alignment, out: &mut FrameOut) {
+        let x0 = match align {
+            Alignment::Right => area.right().saturating_sub(self.width).max(area.x),
+            _ => area.x,
+        };
+        for (dx, w, hit) in self.buttons {
+            let rect = Rect { x: x0 + dx, y: area.y, width: w, height: 1 }.intersection(area);
+            if !rect.is_empty() {
+                out.zones.push(Zone { rect, hit });
+            }
+        }
+        f.render_widget(Paragraph::new(Line::from(self.spans)).alignment(align), area);
+    }
 }
 
 const SPINNER: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
@@ -302,6 +358,17 @@ fn empty_hint(ui: &Ui) -> &'static str {
     }
 }
 
+/// The list body takes the wheel; on a searchable tab, the heading (and the empty hint) opens search.
+fn list_zones(ui: &Ui, area: Rect, inner: Rect, top: u16, empty: bool, out: &mut FrameOut) {
+    out.zones.push(Zone { rect: area, hit: Hit::List });
+    if ui.browse.list(ui.browse.tab).is_some() {
+        out.zones.push(Zone { rect: Rect { height: 1, ..inner }, hit: Hit::Act(Action::Search) });
+        if empty {
+            out.zones.push(Zone { rect: Rect { y: top, height: 1, ..inner }, hit: Hit::Act(Action::Search) });
+        }
+    }
+}
+
 fn render_list_compact(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &mut FrameOut) {
     f.render_widget(Block::default().style(theme.panel()), area);
     let inner = area.inner(Margin::new(2, 1));
@@ -313,6 +380,7 @@ fn render_list_compact(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &m
     let cap = (inner.bottom() - top) as usize;
     let rows = ui.browse.rows(&ui.snap);
     out.list_rows = cap;
+    list_zones(ui, area, inner, top, rows.is_empty(), out);
     if rows.is_empty() {
         f.render_widget(
             Paragraph::new(Span::styled(empty_hint(ui), theme.muted())),
@@ -326,6 +394,7 @@ fn render_list_compact(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &m
     out.list_offset = off;
     for (i, row) in rows.iter().enumerate().skip(off).take(cap) {
         let rect = Rect { y: top + (i - off) as u16, height: 1, ..inner };
+        out.zones.push(Zone { rect, hit: Hit::Row(i) });
         let sel = i == selected;
         let bg = if sel { theme.element_bg() } else { theme.panel_bg() };
         let style = Style::default().fg(theme.text.into());
@@ -382,6 +451,7 @@ fn render_list_table(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &mut
     let top = inner.y + 3;
     let cap = (inner.bottom() - top) as usize;
     out.list_rows = cap;
+    list_zones(ui, area, inner, top, rows.is_empty(), out);
     if rows.is_empty() {
         f.render_widget(
             Paragraph::new(Span::styled(empty_hint(ui), theme.muted())),
@@ -395,6 +465,7 @@ fn render_list_table(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &mut
     out.list_offset = off;
     for (i, row) in rows.iter().enumerate().skip(off).take(cap) {
         let rect = Rect { y: top + (i - off) as u16, height: 1, ..inner };
+        out.zones.push(Zone { rect, hit: Hit::Row(i) });
         let sel = i == selected;
         let bg = if sel { theme.element_bg() } else { theme.panel_bg() };
         let fields: Vec<String> = match &row.item {
@@ -430,50 +501,53 @@ fn render_list_table(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &mut
     }
 }
 
-fn render_header(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect) {
-    let mut spans = wordmark(theme);
-    spans.push(Span::raw("   "));
-    for (tab, label) in [
-        (Tab::YouTube, "1 YouTube"),
-        (Tab::Radio, "2 Radio"),
-        (Tab::FavoriteSongs, "3 ♥ Songs"),
-        (Tab::FavoriteStations, "4 ♥ Stations"),
-        (Tab::Queue, "gq Queue"),
-    ] {
-        if ui.browse.tab == tab {
-            spans.extend(pill(label, theme.primary, theme.background));
+fn render_header(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, out: &mut FrameOut) {
+    let mut left = Run::default();
+    left.button(wordmark(theme), Hit::Act(Action::Help));
+    left.text(Span::raw("   "));
+    for tab in [Tab::YouTube, Tab::Radio, Tab::FavoriteSongs, Tab::FavoriteStations, Tab::Queue] {
+        let label = match tab {
+            Tab::FavoriteSongs => "♥ Songs",
+            Tab::FavoriteStations => "♥ Stations",
+            t => t.label(),
+        };
+        let spans = if ui.browse.tab == tab {
+            pill(label, theme.primary, theme.background)
         } else {
-            spans.push(Span::styled(format!(" {label} "), theme.muted()));
-        }
-        spans.push(Span::raw(" "));
+            vec![Span::styled(format!(" {label} "), theme.muted())]
+        };
+        left.button(spans, Hit::Tab(tab));
+        left.text(Span::raw(" "));
     }
     if let Some(c) = ui.snap.cursor {
         let up = ui.snap.queue.len().saturating_sub(c + 1);
-        spans.push(Span::styled(format!("  {up} up next"), theme.muted()));
+        left.text(Span::styled(format!("  {up} up next"), theme.muted()));
     }
     if let RadioStatus::Following { fetching: true, .. } = ui.snap.radio {
-        spans.push(Span::styled("  radio…", theme.muted()));
+        left.text(Span::styled("  radio…", theme.muted()));
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
-    let key = |k: &'static str| Span::styled(k, Style::default().fg(theme.primary.into()));
-    let val = |v: &str| Span::styled(v.to_string(), Style::default().fg(theme.text.into()));
-    let right = Line::from(vec![
-        key("w "),
-        val(ui.layout.label()),
-        Span::styled("  ·  ", theme.muted()),
-        key("t "),
-        val(ui.look.mode.label()),
-        Span::styled("  ·  ", theme.muted()),
-        key("v "),
-        val(if ui.spectrum.enabled { "viz on" } else { "viz off" }),
-    ]);
-    f.render_widget(Paragraph::new(right).alignment(Alignment::Right), area);
+    left.place(f, area, Alignment::Left, out);
+    let val = |v: &str| vec![Span::styled(v.to_string(), Style::default().fg(theme.text.into()))];
+    let mut right = Run::default();
+    let toggles = [
+        (ui.layout.label(), Action::CycleLayout),
+        (ui.look.mode.label(), Action::CycleTheme),
+        (if ui.spectrum.enabled { "viz on" } else { "viz off" }, Action::ToggleSpectrum),
+        (if ui.lyrics.open { "lyrics on" } else { "lyrics off" }, Action::Lyrics),
+    ];
+    for (i, (label, action)) in toggles.into_iter().enumerate() {
+        if i > 0 {
+            right.text(Span::styled("  ·  ", theme.muted()));
+        }
+        right.button(val(label), Hit::Act(action));
+    }
+    right.place(f, area, Alignment::Right, out);
 }
 
-fn render_strip(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, now: Instant) {
+fn render_strip(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, now: Instant, out: &mut FrameOut) {
     let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
     let spin = SPINNER[ui.spin % 8];
-    let mut left = vec![];
+    let mut left = Run::default();
     let (glyph, title, artist, status) = match &ui.snap.now {
         None => {
             ("■".to_string(), String::new(), String::new(), if ui.snap.cursor.is_some() { "stopped" } else { "idle" })
@@ -497,25 +571,28 @@ fn render_strip(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, now: Instant) 
             (g, icy.unwrap_or_else(|| "—".into()), station.name.clone(), s)
         }
     };
-    left.push(Span::styled(format!("{glyph} "), theme.heading()));
+    left.button(vec![Span::styled("⏮ ", theme.muted())], Hit::Act(Action::Prev));
+    left.button(vec![Span::styled(format!("{glyph} "), theme.heading())], Hit::Act(Action::TogglePause));
+    left.button(vec![Span::styled("⏭", theme.muted())], Hit::Act(Action::Next));
+    left.text(Span::raw("  "));
     if title.is_empty() {
-        left.push(Span::styled(status, theme.muted()));
+        left.text(Span::styled(status, theme.muted()));
     } else {
-        left.push(Span::styled(
+        left.text(Span::styled(
             truncate(&title, 50),
             Style::default().fg(theme.text.into()).add_modifier(Modifier::BOLD),
         ));
-        left.push(Span::styled("  ", theme.muted()));
-        left.push(Span::styled(truncate(&artist, 40), Style::default().fg(theme.primary.into())));
+        left.text(Span::styled("  ", theme.muted()));
+        left.text(Span::styled(truncate(&artist, 40), Style::default().fg(theme.primary.into())));
         if !status.is_empty() {
-            left.push(Span::styled(format!("  {status}"), theme.muted()));
+            left.text(Span::styled(format!("  {status}"), theme.muted()));
         }
     }
-    f.render_widget(Paragraph::new(Line::from(left)), rows[0]);
+    left.place(f, rows[0], Alignment::Left, out);
     const VLEV: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     let vol = ui.snap.volume.get() as usize;
     let filled = (vol.min(100) * VLEV.len() + 50) / 100;
-    let mut vspans: Vec<Span> = VLEV
+    let bars: Vec<Span> = VLEV
         .iter()
         .enumerate()
         .map(|(i, ch)| {
@@ -523,8 +600,10 @@ fn render_strip(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, now: Instant) 
             Span::styled(ch.to_string(), Style::default().fg(c.into()))
         })
         .collect();
-    vspans.push(Span::styled(format!(" {vol:>3}%"), theme.muted()));
-    f.render_widget(Paragraph::new(Line::from(vspans)).alignment(Alignment::Right), rows[0]);
+    let mut volume = Run::default();
+    volume.button(bars, Hit::Volume);
+    volume.text(Span::styled(format!(" {vol:>3}%"), theme.muted()));
+    volume.place(f, rows[0], Alignment::Right, out);
 
     if let Some(Now::Station { stage, .. }) = &ui.snap.now {
         let listened = match stage {
@@ -551,34 +630,17 @@ fn render_strip(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect, now: Instant) 
         let r = format!(" {}", fmt_dur(dur));
         let bar_w = (rows[1].width as usize).saturating_sub(l.chars().count() + r.chars().count());
         let filled = if dur.is_zero() { 0 } else { (pos.as_secs_f64() / dur.as_secs_f64() * bar_w as f64) as usize };
-        let mut spans = vec![Span::styled(l, theme.muted())];
-        spans.extend(progress(bar_w, filled, theme.primary, theme.border_dimmest));
-        spans.push(Span::styled(r, theme.muted()));
-        f.render_widget(Paragraph::new(Line::from(spans)), rows[1]);
+        let mut bar = Run::default();
+        bar.text(Span::styled(l, theme.muted()));
+        let spans = progress(bar_w, filled, theme.primary, theme.border_dimmest);
+        if dur.is_zero() {
+            spans.into_iter().for_each(|s| bar.text(s));
+        } else {
+            bar.button(spans, Hit::Seek(dur));
+        }
+        bar.text(Span::styled(r, theme.muted()));
+        bar.place(f, rows[1], Alignment::Left, out);
     }
-}
-
-fn render_footer(f: &mut Frame, theme: Theme, area: Rect) {
-    let key = |k: &'static str| Span::styled(k, Style::default().fg(theme.primary.into()));
-    let lbl = |t: &'static str| Span::styled(t, theme.muted());
-    let hints = [
-        ("⇥", " source   "),
-        ("/", " search   "),
-        ("⏎", " play   "),
-        ("␣", " pause   "),
-        ("n/b", " next/prev   "),
-        ("a", " play next   "),
-        ("f", " fav   "),
-        ("gq", " queue   "),
-        ("w", " layout   "),
-        ("t", " theme   "),
-        ("l", " lyrics   "),
-        ("?", " help   "),
-        ("q", " close   "),
-        ("Q", " quit"),
-    ];
-    let line = Line::from(hints.into_iter().flat_map(|(k, l)| [key(k), lbl(l)]).collect::<Vec<_>>());
-    f.render_widget(Paragraph::new(line).alignment(Alignment::Center), area);
 }
 
 fn popup(area: Rect, w: u16, h: u16) -> Rect {
@@ -604,7 +666,22 @@ fn render_help(f: &mut Frame, ui: &Ui, theme: Theme, area: Rect) {
             Span::styled(action.help(), Style::default().fg(theme.text.into())),
         ]));
     }
-    let rect = popup(area, 62, lines.len() as u16 + 2);
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled("Mouse", theme.heading())));
+    lines.push(Line::raw(""));
+    for (what, does) in [
+        ("click", "tabs, toggles, ⏮ ⏯ ⏭, the bar to seek, volume"),
+        ("double-click", "play the row"),
+        ("right-click", "play the row next"),
+        ("middle-click", "favorite / unfavorite the row"),
+        ("wheel", "move the list, seek on the bar, volume"),
+    ] {
+        lines.push(Line::from(vec![
+            Span::styled(pad(what, 18), Style::default().fg(theme.primary.into())),
+            Span::styled(does, Style::default().fg(theme.text.into())),
+        ]));
+    }
+    let rect = popup(area, 66, lines.len() as u16 + 2);
     f.render_widget(Clear, rect);
     f.render_widget(Block::default().style(theme.element()), rect);
     f.render_widget(Paragraph::new(lines), rect.inner(Margin::new(2, 1)));
@@ -671,10 +748,9 @@ pub fn frame(f: &mut Frame, ui: &Ui, now: Instant) -> FrameOut {
         Constraint::Min(6),
         Constraint::Length(if thin_viz { 4 } else { 1 }),
         Constraint::Length(2),
-        Constraint::Length(1),
     ])
     .split(area);
-    render_header(f, ui, theme, rows[0]);
+    render_header(f, ui, theme, rows[0], &mut out);
     if ui.lyrics.open {
         render_lyrics(f, ui, theme, rows[2], now);
     } else {
@@ -688,8 +764,7 @@ pub fn frame(f: &mut Frame, ui: &Ui, now: Instant) -> FrameOut {
         let r = rows[3];
         render_spectrum(f, ui, theme, Rect { y: r.y, height: 3, ..r });
     }
-    render_strip(f, ui, theme, rows[4], now);
-    render_footer(f, theme, rows[5]);
+    render_strip(f, ui, theme, rows[4], now, &mut out);
     render_toasts(f, ui, theme, area);
     render_prefix(f, ui, theme, area, now);
     if ui.mode == Mode::Help {

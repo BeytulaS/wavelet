@@ -7,11 +7,13 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Position;
 
-use crate::domain::Playable;
+use crate::domain::{Playable, Volume};
 use crate::player::api::{Command, Level, Notice, SeekTo, VolumeTo};
 use crate::tui::browse::{Selected, Tab};
+use crate::tui::draw::{Hit, Zone};
 use crate::tui::{Exit, Mode, Ui};
 
 macro_rules! actions {
@@ -272,6 +274,7 @@ impl KeyState {
 pub fn on_event(ui: &mut Ui, ev: Event, now: Instant) {
     match ev {
         Event::Key(k) if k.kind == KeyEventKind::Press => on_key(ui, k, now),
+        Event::Mouse(m) => on_mouse(ui, m, now),
         Event::Resize(..) => ui.force_repaint = true,
         _ => {}
     }
@@ -308,6 +311,79 @@ fn on_key(ui: &mut Ui, k: KeyEvent, now: Instant) {
                 }
             }
         }
+    }
+}
+
+pub const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+
+fn on_mouse(ui: &mut Ui, m: MouseEvent, now: Instant) {
+    let at = Position { x: m.column, y: m.row };
+    let zone = ui.last_frame.zones.iter().rev().find(|z| z.rect.contains(at)).copied();
+    match m.kind {
+        MouseEventKind::Down(button) => {
+            ui.keys.reset();
+            match &ui.mode {
+                Mode::Help => {
+                    ui.mode = Mode::Normal;
+                    ui.force_repaint = true;
+                    return;
+                }
+                Mode::Search { .. } if zone.is_some_and(|z| z.hit == Hit::Act(Action::Search)) => return,
+                Mode::Search { .. } => ui.mode = Mode::Normal,
+                Mode::Normal => {}
+            }
+            if let Some(zone) = zone {
+                click(ui, zone, button, at, now);
+            }
+        }
+        MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+            let down = m.kind == MouseEventKind::ScrollDown;
+            match zone.map(|z| z.hit) {
+                Some(Hit::List | Hit::Row(_)) => ui.browse.move_by(if down { 3 } else { -3 }, &ui.snap),
+                Some(Hit::Seek(_)) => dispatch(ui, if down { Action::SeekBack } else { Action::SeekForward }, now),
+                Some(Hit::Volume) => dispatch(ui, if down { Action::VolumeDown } else { Action::VolumeUp }, now),
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Where in `rect` the pointer sits, 0.0 at the left edge to 1.0 at the right.
+fn fraction(rect: ratatui::layout::Rect, at: Position) -> f64 {
+    (at.x.saturating_sub(rect.x) as f64 + 0.5) / rect.width.max(1) as f64
+}
+
+fn click(ui: &mut Ui, zone: Zone, button: MouseButton, at: Position, now: Instant) {
+    let last = ui.last_click.replace((at, now));
+    match (button, zone.hit) {
+        (MouseButton::Left, Hit::Act(action)) => dispatch(ui, action, now),
+        (MouseButton::Left, Hit::Tab(tab)) => ui.browse.set_tab(tab, &ui.snap),
+        (MouseButton::Left, Hit::Seek(dur)) => {
+            ui.player.send(Command::Seek(SeekTo::At(dur.mul_f64(fraction(zone.rect, at).min(1.0)))))
+        }
+        (MouseButton::Left, Hit::Volume) => {
+            let bars = at.x.saturating_sub(zone.rect.x) as i32 + 1;
+            let v = bars * 100 / zone.rect.width.max(1) as i32;
+            ui.player.send(Command::Volume(VolumeTo::At(Volume::new(v))))
+        }
+        (MouseButton::Left, Hit::Row(i)) => {
+            ui.browse.select(i, &ui.snap);
+            let double = last.is_some_and(|(p, t)| p.y == at.y && now.saturating_duration_since(t) <= DOUBLE_CLICK);
+            if double {
+                ui.last_click = None;
+                dispatch(ui, Action::Activate, now);
+            }
+        }
+        (MouseButton::Right, Hit::Row(i)) => {
+            ui.browse.select(i, &ui.snap);
+            dispatch(ui, Action::PlayNext, now);
+        }
+        (MouseButton::Middle, Hit::Row(i)) => {
+            ui.browse.select(i, &ui.snap);
+            dispatch(ui, Action::ToggleFavorite, now);
+        }
+        _ => {}
     }
 }
 

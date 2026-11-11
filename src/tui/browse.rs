@@ -178,6 +178,11 @@ impl Browse {
         c.selected = c.selected.saturating_add_signed(delta).min(len.saturating_sub(1));
     }
 
+    pub fn select(&mut self, index: usize, snap: &Snapshot) {
+        let len = self.rows(snap).len();
+        self.cursor_mut().selected = index.min(len.saturating_sub(1));
+    }
+
     pub fn set_tab(&mut self, tab: Tab, snap: &Snapshot) {
         if tab == Tab::Queue {
             self.queue.selected = snap.cursor.unwrap_or(0);
